@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import BgRemover from "@/components/BgRemover";
 
@@ -10,7 +11,9 @@ export const metadata: Metadata = {
 export default function BgRemoverPage() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-sky-50/40">
-      <BgRemover />
+      <Suspense>
+        <BgRemover />
+      </Suspense>
     </main>
   );
 }

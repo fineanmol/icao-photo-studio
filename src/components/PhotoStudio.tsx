@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   GUIDELINES,
   ICAO_HEIGHT,
@@ -56,6 +57,8 @@ function fmt(v: number, suffix = "") {
 // ─── component ──────────────────────────────────────────────────────────────
 
 export default function PhotoStudio() {
+  const searchParams = useSearchParams();
+
   // ── state ────────────────────────────────────────────────────────────────
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [settings, setSettings] = useState<ICAOSettings>(defaultSettings);
@@ -103,14 +106,13 @@ export default function PhotoStudio() {
 
   // ── payment check ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (typeof window === "undefined") return;
     if (sessionStorage.getItem(STORAGE_KEY) === "1" || DEV_DOWNLOAD) setPaid(true);
-
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("testWatermark") === "1") {
+    if (searchParams.get("testWatermark") === "1") {
       setShowWatermarkTools(true);
       setWatermarkOn(true);
     }
+  // searchParams is stable from useSearchParams — safe dep
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── core process (stable, empty deps, reads from refs / passed args) ──────
