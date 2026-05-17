@@ -218,17 +218,19 @@ export function validateICAO(
 
   /* 6. Eyes open (Eye Aspect Ratio) ──────────────────────────────── */
   if (face) {
-    const ear = (face.leftEAR + face.rightEAR) / 2;
-    const bothOpen = face.leftEAR > 0.18 && face.rightEAR > 0.18;
-    const onePartial = face.leftEAR > 0.13 || face.rightEAR > 0.13;
+    const lEAR = isFinite(face.leftEAR) ? face.leftEAR : 0;
+    const rEAR = isFinite(face.rightEAR) ? face.rightEAR : 0;
+    const ear = (lEAR + rEAR) / 2;
+    const bothOpen = lEAR > 0.18 && rEAR > 0.18;
+    const onePartial = lEAR > 0.13 || rEAR > 0.13;
     items.push({
       id: "eyes-open",
       label: "Eyes open",
       status: bothOpen ? "pass" : onePartial ? "warn" : "fail",
       message: bothOpen
-        ? `Both eyes open (L ${face.leftEAR.toFixed(2)} / R ${face.rightEAR.toFixed(2)}).`
+        ? `Both eyes open (L ${lEAR.toFixed(2)} / R ${rEAR.toFixed(2)}).`
         : onePartial
-          ? `Eye openness low (L ${face.leftEAR.toFixed(2)} / R ${face.rightEAR.toFixed(2)}). Make sure eyes are fully open.`
+          ? `Eye openness low (L ${lEAR.toFixed(2)} / R ${rEAR.toFixed(2)}). Make sure eyes are fully open.`
           : `Eyes appear closed (EAR ${ear.toFixed(2)}). Look directly at the camera with eyes open.`,
     });
   } else {
@@ -275,26 +277,23 @@ export function validateICAO(
 
   /* 8. Head alignment (roll + yaw) ────────────────────────────────── */
   if (face) {
-    const roll = Math.abs(face.rollDeg);
-    const yaw = Math.abs(face.yawOffset);
-    const rollOk = roll < 5;
+    const roll = isFinite(face.rollDeg) ? Math.abs(face.rollDeg) : 0;
+    const yaw  = isFinite(face.yawOffset) ? Math.abs(face.yawOffset) : 0;
+    const rollOk   = roll < 5;
     const rollWarn = roll < 10;
-    const yawOk = yaw < 0.12;
-    const yawWarn = yaw < 0.22;
-
-    const poseOk = rollOk && yawOk;
+    const yawOk    = yaw < 0.12;
+    const yawWarn  = yaw < 0.22;
+    const poseOk   = rollOk && yawOk;
     const poseWarn = rollWarn && yawWarn;
 
-    let msg = "";
+    let msg: string;
     if (poseOk) {
-      msg = `Head is level and front-facing (tilt ${roll.toFixed(1)}°, turn ${Math.round(yaw * 100)}%).`;
+      msg = `Head is level and front-facing (tilt ${roll.toFixed(1)}°, offset ${Math.round(yaw * 100)}%).`;
     } else {
       const issues: string[] = [];
-      if (!rollWarn) issues.push(`head tilted ${roll.toFixed(1)}°`);
-      else if (!rollOk) issues.push(`slight tilt (${roll.toFixed(1)}°)`);
-      if (!yawWarn) issues.push(`face turned ${Math.round(yaw * 100)}% off-axis`);
-      else if (!yawOk) issues.push(`slight turn (${Math.round(yaw * 100)}%)`);
-      msg = `${issues.join(", ")}. Look straight at the camera with head level.`;
+      if (!rollOk) issues.push(`head tilted ${roll.toFixed(1)}°`);
+      if (!yawOk)  issues.push(`face turned ${Math.round(yaw * 100)}% off-axis`);
+      msg = issues.join(", ") + ". Look straight at the camera with head level.";
       msg = msg.charAt(0).toUpperCase() + msg.slice(1);
     }
 

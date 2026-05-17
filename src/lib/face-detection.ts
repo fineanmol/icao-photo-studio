@@ -46,26 +46,37 @@ export async function loadFaceModels(): Promise<void> {
 
 type Point = { x: number; y: number };
 
-function dist(a: Point, b: Point) {
+function isValidPt(p: Point): boolean {
+  return isFinite(p.x) && isFinite(p.y);
+}
+
+function dist(a: Point, b: Point): number {
+  if (!isValidPt(a) || !isValidPt(b)) return 0;
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+/** Returns {x:0, y:0} instead of NaN when pts is empty or has non-finite coords. */
 function centroid(pts: Point[]): Point {
-  const x = pts.reduce((s, p) => s + p.x, 0) / pts.length;
-  const y = pts.reduce((s, p) => s + p.y, 0) / pts.length;
-  return { x, y };
+  const valid = pts.filter(isValidPt);
+  if (valid.length === 0) return { x: 0, y: 0 };
+  return {
+    x: valid.reduce((s, p) => s + p.x, 0) / valid.length,
+    y: valid.reduce((s, p) => s + p.y, 0) / valid.length,
+  };
 }
 
 /**
  * Eye Aspect Ratio (EAR) from 6 eye landmarks.
- * Order expected: [outerCorner, upperOuter, upperInner, innerCorner, lowerInner, lowerOuter]
+ * Returns 0 on bad data rather than NaN.
+ * Order: [outerCorner, upperOuter, upperInner, innerCorner, lowerInner, lowerOuter]
  */
 function eyeAspectRatio(pts: Point[]): number {
-  if (pts.length < 6) return 0;
+  if (pts.length < 6 || !pts.every(isValidPt)) return 0;
   const v1 = dist(pts[1], pts[5]);
   const v2 = dist(pts[2], pts[4]);
-  const h = dist(pts[0], pts[3]);
-  return h > 0 ? (v1 + v2) / (2 * h) : 0;
+  const h  = dist(pts[0], pts[3]);
+  if (h === 0 || !isFinite(v1) || !isFinite(v2)) return 0;
+  return (v1 + v2) / (2 * h);
 }
 
 /* ── main export ───────────────────────────────────────────────────── */
@@ -105,22 +116,32 @@ export async function detectFace(
   const padX = jawWidth * 0.18;
 
   /* ── eye openness (EAR) ──────────────────────────────────────── */
-  const leftEye = lm.getLeftEye();
-  const rightEye = lm.getRightEye();
+  const leftEye = lm.getLeftEye() as Point[];
+  const rightEye = lm.getRightEye() as Point[];
   const leftEAR = eyeAspectRatio(leftEye);
   const rightEAR = eyeAspectRatio(rightEye);
 
   /* ── head roll (angle between eye centres) ────────────────────── */
-  const lEyeC = centroid(leftEye);
-  const rEyeC = centroid(rightEye);
-  const rollDeg = Math.atan2(rEyeC.y - lEyeC.y, rEyeC.x - lEyeC.x) * (180 / Math.PI);
-
-  /* ── head yaw (nose offset vs eye midpoint) ──────────────────── */
-  const nose = lm.getNose();
-  const noseTip = nose[nose.length - 1]; // bottom of nose bridge
-  const eyeMidX = (lEyeC.x + rEyeC.x) / 2;
+  const lEyeC = centroid(leftEye as Point[]);
+  const rEyeC = centroid(rightEye as Point[]);
+  // Guard: if centroids collapsed to origin (bad landmarks), roll = 0
   const eyeSpan = Math.abs(rEyeC.x - lEyeC.x);
-  const yawOffset = eyeSpan > 0 ? (noseTip.x - eyeMidX) / eyeSpan : 0;
+  const rollDeg =
+    eyeSpan > 1
+      ? Math.atan2(rEyeC.y - lEyeC.y, rEyeC.x - lEyeC.x) * (180 / Math.PI)
+      : 0;
+
+  /* ── head yaw (nose tip offset vs eye midpoint) ──────────────── */
+  // getNose() returns 9 points (landmarks 27-35).
+  // Index 6 = landmark 33 = actual pronasale (nose tip).
+  const nose = lm.getNose() as Point[];
+  const noseTip: Point =
+    nose.length >= 7 && isValidPt(nose[6])
+      ? nose[6]
+      : nose[Math.floor(nose.length / 2)] ?? { x: (lEyeC.x + rEyeC.x) / 2, y: 0 };
+  const eyeMidX = (lEyeC.x + rEyeC.x) / 2;
+  const yawOffset =
+    eyeSpan > 1 && isValidPt(noseTip) ? (noseTip.x - eyeMidX) / eyeSpan : 0;
 
   /* ── expressions ─────────────────────────────────────────────── */
   const rawExpr = detection.expressions as unknown as Record<string, number> | undefined;
