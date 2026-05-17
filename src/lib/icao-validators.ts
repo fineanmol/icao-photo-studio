@@ -126,22 +126,29 @@ export function validateICAO(
       : `Current size is ${w}×${h}px — must be 630×810.`,
   });
 
-  // 2. White background
-  const bgPct = backgroundWhitePercent(data, w, h);
-  const bgStatus = bgPct >= 95 ? "pass" : bgPct >= 75 ? "warn" : "fail";
-  items.push({
-    id: "background",
-    label: "White background",
-    status: bgStatus,
-    message:
-      bgStatus === "pass"
-        ? bgRemoved
-          ? "Background removed and replaced with pure white ✓"
-          : "Border region is near pure white."
-        : bgPct >= 75
-          ? "Background appears light but may not be pure white. Use 'Remove Background' for best results."
-          : "Background is not white. Use the 'Remove Background' button or retake with a plain white backdrop.",
-  });
+  // 2. White background — always pass when user explicitly removed background
+  if (bgRemoved) {
+    items.push({
+      id: "background",
+      label: "White background",
+      status: "pass",
+      message: "AI background removed and replaced with pure white ✓",
+    });
+  } else {
+    const bgPct = backgroundWhitePercent(data, w, h);
+    const bgStatus = bgPct >= 95 ? "pass" : bgPct >= 75 ? "warn" : "fail";
+    items.push({
+      id: "background",
+      label: "White background",
+      status: bgStatus,
+      message:
+        bgStatus === "pass"
+          ? "Border region is near pure white."
+          : bgPct >= 75
+            ? "Background looks light but may not be pure white. Use '✨ Remove Background' for best results."
+            : "Background is not white. Use the '✨ Remove Background' button or retake with a plain white backdrop.",
+    });
+  }
 
   // 3. Face ratio
   if (faceOutputHeight && faceOutputHeight > 0) {

@@ -480,6 +480,12 @@ export default function PhotoStudio() {
                 >
                   Re-detect face
                 </button>
+                <a
+                  href="/bg-remover"
+                  className="ml-auto rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-100"
+                >
+                  Dedicated BG Remover →
+                </a>
               </div>
 
               {/* Download / pay row */}

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { DM_Sans } from "next/font/google";
+import SiteNav from "@/components/SiteNav";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -20,7 +21,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={dmSans.variable}>
-      <body className="min-h-screen font-sans antialiased text-slate-900">{children}</body>
+      <body className="min-h-screen font-sans antialiased text-slate-900">
+        <SiteNav />
+        {children}
+      </body>
     </html>
   );
 }
