@@ -1,5 +1,4 @@
 import {
-  BACKGROUND_RGB,
   FACE_RATIO_DEFAULT,
   ICAO_HEIGHT,
   ICAO_WIDTH,
@@ -17,7 +16,6 @@ export type ICAOSettings = {
   brightness: number;
   contrast: number;
   saturation: number;
-  backgroundStrength: number;
   sharpen: number;
 };
 
@@ -29,7 +27,6 @@ export const defaultSettings: ICAOSettings = {
   brightness: 0,
   contrast: 0,
   saturation: 0,
-  backgroundStrength: 0,
   sharpen: 0,
 };
 
@@ -98,42 +95,6 @@ function applyAdjustments(
   ctx.putImageData(imageData, 0, 0);
 }
 
-/**
- * Luminance-only background whitening.
- * Blends near-white pixels toward pure white.
- * Safe: does NOT modify dark pixels (face/hair) or force any area to white.
- * strength=0 → skip entirely. strength=100 → whiten pixels above lum ~195.
- */
-function whitenBackground(
-  ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  strength: number,
-) {
-  if (strength <= 0) return;
-
-  const imageData = ctx.getImageData(0, 0, w, h);
-  const d = imageData.data;
-
-  // threshold: at strength 100 → lum 195; at strength 50 → lum 227
-  const threshold = 255 - (strength / 100) * 60;
-
-  for (let i = 0; i < d.length; i += 4) {
-    const r = d[i];
-    const g = d[i + 1];
-    const b = d[i + 2];
-    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-
-    if (lum > threshold) {
-      // Smooth blend: 0 at threshold, 1 at lum=255
-      const blend = (lum - threshold) / (255 - threshold);
-      d[i] = Math.round(r + (BACKGROUND_RGB.r - r) * blend);
-      d[i + 1] = Math.round(g + (BACKGROUND_RGB.g - g) * blend);
-      d[i + 2] = Math.round(b + (BACKGROUND_RGB.b - b) * blend);
-    }
-  }
-  ctx.putImageData(imageData, 0, 0);
-}
 
 function unsharpMask(
   ctx: CanvasRenderingContext2D,
@@ -369,7 +330,6 @@ export async function processToICAO(
   ctx.drawImage(srcCanvas, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, ICAO_WIDTH, ICAO_HEIGHT);
 
   applyAdjustments(ctx, ICAO_WIDTH, ICAO_HEIGHT, settings);
-  whitenBackground(ctx, ICAO_WIDTH, ICAO_HEIGHT, settings.backgroundStrength);
   unsharpMask(ctx, ICAO_WIDTH, ICAO_HEIGHT, settings.sharpen);
 
   // ── Auto-correct lighting asymmetry ───────────────────────────────

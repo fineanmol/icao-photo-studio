@@ -625,13 +625,6 @@ export default function PhotoStudio() {
                   <Slider label="Contrast" hint={fmt(settings.contrast)} min={-40} max={40} step={5} value={settings.contrast} onChange={(v) => update("contrast", v)} />
                   <Slider label="Saturation" hint={fmt(settings.saturation)} min={-50} max={50} step={5} value={settings.saturation} onChange={(v) => update("saturation", v)} />
                   <Slider label="Sharpen" hint={String(settings.sharpen)} min={0} max={50} step={5} value={settings.sharpen} onChange={(v) => update("sharpen", v)} />
-                  <Slider
-                    label="BG whiten (near-white only)"
-                    hint={`${settings.backgroundStrength}%`}
-                    min={0} max={100} step={5}
-                    value={settings.backgroundStrength}
-                    onChange={(v) => update("backgroundStrength", v)}
-                  />
                 </div>
               </fieldset>
             </div>
