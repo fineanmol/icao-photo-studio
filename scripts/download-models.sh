@@ -11,6 +11,8 @@ files=(
   tiny_face_detector_model-shard1
   face_landmark_68_tiny_model-weights_manifest.json
   face_landmark_68_tiny_model-shard1
+  face_expression_model-weights_manifest.json
+  face_expression_model-shard1
 )
 
 for f in "${files[@]}"; do

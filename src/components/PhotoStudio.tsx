@@ -8,7 +8,7 @@ import {
   PRICE_DISPLAY,
 } from "@/lib/icao-constants";
 import { detectFace, loadFaceModels } from "@/lib/face-detection";
-import type { FaceBox } from "@/lib/face-detection";
+import type { FaceAnalysis } from "@/lib/face-detection";
 import {
   canvasToBlob,
   computeCrop,
@@ -73,7 +73,7 @@ export default function PhotoStudio() {
   const [bgRemoved, setBgRemoved] = useState(false);
 
   // ── refs ─────────────────────────────────────────────────────────────────
-  const faceRef = useRef<FaceBox | null>(null);
+  const faceRef = useRef<FaceAnalysis | null>(null);
   const modelsReadyRef = useRef(false);
   const processGenRef = useRef(0);
   const sourceUrlRef = useRef<string | null>(null);
@@ -154,7 +154,8 @@ export default function PhotoStudio() {
         setFinalCanvas(out);
 
         // Build validation — need face height in output pixels
-        const fallback: FaceBox = {
+        // fallback box used only for crop math when face detection not yet available
+        const fallback = {
           x: img.naturalWidth * 0.2,
           y: img.naturalHeight * 0.05,
           width: img.naturalWidth * 0.6,
