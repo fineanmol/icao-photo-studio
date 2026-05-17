@@ -15,9 +15,11 @@ export async function GET(req: NextRequest) {
   const stripe = new Stripe(secret);
   const session = await stripe.checkout.sessions.retrieve(sessionId);
 
+  // Accept either product — both are valid paid sessions
+  const validProducts = ["icao_photo", "bg_removal"];
   const paid =
     session.payment_status === "paid" &&
-    session.metadata?.product === "icao_photo_download";
+    validProducts.includes(session.metadata?.product ?? "");
 
   return NextResponse.json({ paid });
 }
