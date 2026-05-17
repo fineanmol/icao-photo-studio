@@ -7,6 +7,9 @@ import {
 import { getCanvas2D } from "./canvas";
 import type { FaceBox } from "./face-detection";
 
+/** FaceBox extended with optional auto-correction hints from FaceAnalysis. */
+type FaceInput = FaceBox & { rollDeg?: number };
+
 export type ICAOSettings = {
   faceRatio: number;
   offsetX: number;
@@ -213,19 +216,119 @@ export function computeCrop(
   return { sx, sy, sw, sh };
 }
 
+/**
+ * Counter-rotates a source canvas by -rollDeg to level a tilted head.
+ * Also transforms the face box centre into the new coordinate space.
+ * Threshold: only applies when |rollDeg| > 1.5° (below that, cropping hides it).
+ */
+function correctRoll(
+  srcCanvas: HTMLCanvasElement,
+  face: FaceBox,
+  rollDeg: number,
+): { canvas: HTMLCanvasElement; face: FaceBox } {
+  if (Math.abs(rollDeg) <= 1.5) return { canvas: srcCanvas, face };
+
+  const rad = (-rollDeg * Math.PI) / 180; // negate to counter-rotate
+  const cos = Math.abs(Math.cos(rad));
+  const sin = Math.abs(Math.sin(rad));
+  const srcW = srcCanvas.width;
+  const srcH = srcCanvas.height;
+  const newW = Math.ceil(srcW * cos + srcH * sin);
+  const newH = Math.ceil(srcW * sin + srcH * cos);
+
+  const dst = document.createElement("canvas");
+  dst.width = newW;
+  dst.height = newH;
+  const dstCtx = getCanvas2D(dst);
+  dstCtx.fillStyle = "#ffffff";
+  dstCtx.fillRect(0, 0, newW, newH);
+  dstCtx.save();
+  dstCtx.translate(newW / 2, newH / 2);
+  dstCtx.rotate(rad);
+  dstCtx.drawImage(srcCanvas, -srcW / 2, -srcH / 2);
+  dstCtx.restore();
+
+  // Transform the face centre into the rotated coordinate space
+  const fcx = face.x + face.width / 2 - srcW / 2;
+  const fcy = face.y + face.height / 2 - srcH / 2;
+  const newFcx = fcx * Math.cos(rad) - fcy * Math.sin(rad) + newW / 2;
+  const newFcy = fcx * Math.sin(rad) + fcy * Math.cos(rad) + newH / 2;
+
+  const adjustedFace: FaceBox = {
+    x: newFcx - face.width / 2,
+    y: newFcy - face.height / 2,
+    width: face.width,
+    height: face.height,
+  };
+
+  return { canvas: dst, face: adjustedFace };
+}
+
+/**
+ * Automatically balances lighting across left and right halves of the face.
+ * Measures luminance asymmetry in the face region (skipping white background),
+ * then applies a smooth horizontal gradient boost to equalise both sides.
+ * Only activates when asymmetry > 10 luminance units to avoid over-processing.
+ */
+function fixLightingAsymmetry(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+): void {
+  const faceY0 = Math.floor(h * 0.10);
+  const faceY1 = Math.floor(h * 0.80);
+  const cx = w / 2;
+
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const d = imageData.data;
+
+  let leftSum = 0, rightSum = 0, leftN = 0, rightN = 0;
+  for (let y = faceY0; y < faceY1; y += 4) {
+    for (let x = 0; x < w; x += 4) {
+      const i = (y * w + x) * 4;
+      const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      if (lum < 230) { // ignore near-white background
+        if (x < cx) { leftSum += lum; leftN++; }
+        else { rightSum += lum; rightN++; }
+      }
+    }
+  }
+
+  if (leftN === 0 || rightN === 0) return;
+  const diff = rightSum / rightN - leftSum / leftN; // + = right brighter
+  if (Math.abs(diff) < 10) return;
+
+  // Smooth horizontal gradient: t = -1 at left edge, +1 at right edge
+  // Correction opposes the diff (boosts the darker side)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      if (lum >= 230) continue; // leave white background untouched
+      const t = (x / w) * 2 - 1;         // -1 … +1
+      const corr = -(diff / 2) * t;       // gentle half-correction
+      d[i]     = Math.min(255, Math.max(0, d[i]     + corr));
+      d[i + 1] = Math.min(255, Math.max(0, d[i + 1] + corr));
+      d[i + 2] = Math.min(255, Math.max(0, d[i + 2] + corr));
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+}
+
 export async function processToICAO(
   imageSrc: string,
-  face: FaceBox | null,
+  face: FaceInput | null,
   settings: ICAOSettings,
 ): Promise<HTMLCanvasElement> {
   const img = await loadImage(imageSrc);
-  const srcCanvas = document.createElement("canvas");
+
+  let srcCanvas = document.createElement("canvas");
   srcCanvas.width = img.naturalWidth;
   srcCanvas.height = img.naturalHeight;
-  const srcCtx = getCanvas2D(srcCanvas);
-  srcCtx.drawImage(img, 0, 0);
+  getCanvas2D(srcCanvas).drawImage(img, 0, 0);
 
-  // Fallback face box: assume face occupies central portrait region
+  // Fallback face box
   const fallbackFace: FaceBox = {
     x: img.naturalWidth * 0.2,
     y: img.naturalHeight * 0.05,
@@ -233,10 +336,23 @@ export async function processToICAO(
     height: img.naturalHeight * 0.82,
   };
 
+  let effectiveFace: FaceBox = face ?? fallbackFace;
+
+  // ── Auto-correct head tilt (roll) ─────────────────────────────────
+  if (face && typeof face.rollDeg === "number" && isFinite(face.rollDeg)) {
+    const { canvas: rotated, face: rotFace } = correctRoll(
+      srcCanvas,
+      effectiveFace,
+      face.rollDeg,
+    );
+    srcCanvas = rotated;
+    effectiveFace = rotFace;
+  }
+
   const crop = computeCrop(
-    img.naturalWidth,
-    img.naturalHeight,
-    face ?? fallbackFace,
+    srcCanvas.width,
+    srcCanvas.height,
+    effectiveFace,
     settings,
   );
 
@@ -247,26 +363,17 @@ export async function processToICAO(
 
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, ICAO_WIDTH, ICAO_HEIGHT);
-
-  // Use high-quality downscaling
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
 
-  ctx.drawImage(
-    srcCanvas,
-    crop.sx,
-    crop.sy,
-    crop.sw,
-    crop.sh,
-    0,
-    0,
-    ICAO_WIDTH,
-    ICAO_HEIGHT,
-  );
+  ctx.drawImage(srcCanvas, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, ICAO_WIDTH, ICAO_HEIGHT);
 
   applyAdjustments(ctx, ICAO_WIDTH, ICAO_HEIGHT, settings);
   whitenBackground(ctx, ICAO_WIDTH, ICAO_HEIGHT, settings.backgroundStrength);
   unsharpMask(ctx, ICAO_WIDTH, ICAO_HEIGHT, settings.sharpen);
+
+  // ── Auto-correct lighting asymmetry ───────────────────────────────
+  fixLightingAsymmetry(ctx, ICAO_WIDTH, ICAO_HEIGHT);
 
   return out;
 }
