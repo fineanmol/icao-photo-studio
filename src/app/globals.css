@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-sans), system-ui, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: #0284c7;
+  cursor: pointer;
+}
