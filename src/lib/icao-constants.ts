@@ -9,12 +9,16 @@ export const FACE_RATIO_DEFAULT = 0.825;
 
 export const BACKGROUND_RGB = { r: 255, g: 255, b: 255 } as const;
 
-/** Razorpay amounts are in paise (1 INR = 100 paise). */
-export const PRICE_DISPLAY = "₹399";
-export const PRICE_PAISE = 39900;
+/**
+ * One-time lifetime access — unlocks both ICAO converter and BG remover.
+ * Razorpay amounts are in paise (1 INR = 100 paise).
+ */
+export const PRICE_DISPLAY = "₹29";
+export const PRICE_PAISE = 2900;
 
-export const BG_REMOVAL_PRICE_DISPLAY = "₹149";
-export const BG_REMOVAL_PRICE_PAISE = 14900;
+/** BG remover uses the same lifetime price as the studio. */
+export const BG_REMOVAL_PRICE_DISPLAY = "₹29";
+export const BG_REMOVAL_PRICE_PAISE = 2900;
 
 export const GUIDELINES = [
   {

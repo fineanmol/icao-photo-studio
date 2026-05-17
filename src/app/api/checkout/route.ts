@@ -9,13 +9,13 @@ type Product = "icao_photo" | "bg_removal";
 
 const PRODUCTS: Record<Product, { name: string; description: string; amount: number }> = {
   icao_photo: {
-    name: "ICAO Passport Photo — HD Download",
-    description: "630×810px ICAO-compliant JPEG, no watermark.",
+    name: "ICAO Photo Studio — Lifetime Access",
+    description: "Unlimited ICAO passport photos + background removals. Pay once, use forever. No watermarks.",
     amount: PRICE_PAISE,
   },
   bg_removal: {
-    name: "Background Removal — Clean Download",
-    description: "Transparent PNG + white JPEG, full resolution, no watermark.",
+    name: "ICAO Photo Studio — Lifetime Access",
+    description: "Unlimited background removals + ICAO passport photos. Pay once, use forever. No watermarks.",
     amount: BG_REMOVAL_PRICE_PAISE,
   },
 };

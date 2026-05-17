@@ -13,7 +13,8 @@ import { applyWatermarkToUrl } from "@/lib/watermark";
 import { BG_REMOVAL_PRICE_DISPLAY } from "@/lib/icao-constants";
 import { openRazorpayCheckout } from "@/lib/razorpay-client";
 
-const STORAGE_KEY = "icao_bgremoval_paid";
+/** Same key as PhotoStudio — paying once unlocks all tools forever. */
+const STORAGE_KEY = "icao_lifetime_paid";
 const DEV_DOWNLOAD = process.env.NEXT_PUBLIC_ALLOW_DEV_DOWNLOAD === "true";
 
 /* ── helpers ──────────────────────────────────────────────── */
@@ -177,7 +178,7 @@ export default function BgRemover() {
   /* ── payment check ─────────────────────────────────────────── */
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (sessionStorage.getItem(STORAGE_KEY) === "1" || DEV_DOWNLOAD) {
+    if (localStorage.getItem(STORAGE_KEY) === "1" || DEV_DOWNLOAD) {
       setPaid(true);
     }
   }, []);
@@ -258,7 +259,7 @@ export default function BgRemover() {
         product: "bg_removal",
         onSuccess: () => {
           setPaid(true);
-          sessionStorage.setItem(STORAGE_KEY, "1");
+          localStorage.setItem(STORAGE_KEY, "1");
           setCheckoutLoading(false);
         },
         onDismiss: () => setCheckoutLoading(false),
@@ -506,13 +507,13 @@ export default function BgRemover() {
               </button>
             </div>
           ) : (
-            <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-sky-50 p-5">
+              <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-sky-50 p-5">
               <div className="flex items-start gap-3">
                 <span className="text-2xl">🔒</span>
                 <div className="flex-1">
-                  <p className="font-semibold text-slate-900">Unlock clean downloads</p>
+                  <p className="font-semibold text-slate-900">One-time unlock — use forever</p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Pay once to download your background-removed image — transparent PNG and white JPEG included.
+                    Pay <strong>{BG_REMOVAL_PRICE_DISPLAY}</strong> once and get lifetime access to both the Background Remover and the ICAO Passport Studio — unlimited downloads, no watermarks, ever.
                   </p>
                   <div className="mt-4 flex flex-wrap items-center gap-3">
                     <button
@@ -520,15 +521,15 @@ export default function BgRemover() {
                       disabled={checkoutLoading}
                       className="rounded-xl bg-gradient-to-r from-violet-600 to-sky-600 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:from-violet-700 hover:to-sky-700 disabled:opacity-60"
                     >
-                      {checkoutLoading ? "Redirecting…" : `Unlock — ${BG_REMOVAL_PRICE_DISPLAY}`}
+                      {checkoutLoading ? "Opening payment…" : `Unlock forever — ${BG_REMOVAL_PRICE_DISPLAY}`}
                     </button>
-                    <span className="text-xs text-slate-400">Secure payment via Stripe</span>
+                    <span className="text-xs text-slate-400">Secure · Razorpay</span>
                   </div>
                   <ul className="mt-3 space-y-1 text-xs text-slate-500">
-                    <li>✓ Transparent PNG (alpha channel)</li>
-                    <li>✓ White background JPEG</li>
-                    <li>✓ Full resolution, no watermark</li>
-                    <li>✓ One-time payment, instant download</li>
+                    <li>✓ Transparent PNG + white JPEG</li>
+                    <li>✓ ICAO Passport Studio — unlimited</li>
+                    <li>✓ All future features included</li>
+                    <li>✓ Lifetime access, pay just once</li>
                   </ul>
                 </div>
               </div>

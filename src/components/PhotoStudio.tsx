@@ -31,7 +31,8 @@ import {
 import type { BgRemovalProgress } from "@/lib/bg-removal";
 import { openRazorpayCheckout } from "@/lib/razorpay-client";
 
-const STORAGE_KEY = "icao_photo_paid";
+/** Shared key — paying once unlocks all tools forever across sessions. */
+const STORAGE_KEY = "icao_lifetime_paid";
 const DEV_DOWNLOAD = process.env.NEXT_PUBLIC_ALLOW_DEV_DOWNLOAD === "true";
 
 // ─── small helpers ──────────────────────────────────────────────────────────
@@ -106,7 +107,7 @@ export default function PhotoStudio() {
 
   // ── payment check ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (sessionStorage.getItem(STORAGE_KEY) === "1" || DEV_DOWNLOAD) setPaid(true);
+    if (localStorage.getItem(STORAGE_KEY) === "1" || DEV_DOWNLOAD) setPaid(true);
     if (searchParams.get("testWatermark") === "1") {
       setShowWatermarkTools(true);
       setWatermarkOn(true);
@@ -203,7 +204,7 @@ export default function PhotoStudio() {
       }
       setPaid(false);
       setWatermarkOn(true);
-      sessionStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(STORAGE_KEY);
     } catch (e) {
       setError(
         e instanceof Error
@@ -280,7 +281,7 @@ export default function PhotoStudio() {
     if (!finalCanvas) return;
     if (DEV_DOWNLOAD) {
       setPaid(true);
-      sessionStorage.setItem(STORAGE_KEY, "1");
+      localStorage.setItem(STORAGE_KEY, "1");
       return;
     }
     setCheckoutLoading(true);
@@ -290,7 +291,7 @@ export default function PhotoStudio() {
         product: "icao_photo",
         onSuccess: () => {
           setPaid(true);
-          sessionStorage.setItem(STORAGE_KEY, "1");
+          localStorage.setItem(STORAGE_KEY, "1");
           setCheckoutLoading(false);
         },
         onDismiss: () => setCheckoutLoading(false),
@@ -507,8 +508,8 @@ export default function PhotoStudio() {
                     {checkoutLoading
                       ? "Redirecting…"
                       : DEV_DOWNLOAD
-                        ? "Unlock download (dev)"
-                        : `Download — ${PRICE_DISPLAY}`}
+                        ? "Unlock forever (dev)"
+                        : `Unlock forever — ${PRICE_DISPLAY}`}
                   </button>
                 )}
               </div>
@@ -708,10 +709,9 @@ export default function PhotoStudio() {
 
           {/* Commercial badge */}
           <div className="rounded-2xl bg-slate-900 px-4 py-4 text-white">
-            <p className="text-sm font-semibold">One-time · {PRICE_DISPLAY}</p>
+            <p className="text-sm font-semibold">Lifetime access · {PRICE_DISPLAY} once</p>
             <p className="mt-1 text-xs leading-relaxed text-slate-300">
-              Pay once per photo for a watermark-free {ICAO_WIDTH}×{ICAO_HEIGHT} JPEG.
-              All processing stays on your device.
+              Pay once, use forever — unlimited ICAO photos and background removals. No subscription, no per-download fees. All processing stays on your device.
             </p>
           </div>
         </aside>
