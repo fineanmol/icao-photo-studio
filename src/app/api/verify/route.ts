@@ -1,25 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
+import crypto from "crypto";
 
-export async function GET(req: NextRequest) {
-  const sessionId = req.nextUrl.searchParams.get("session_id");
-  if (!sessionId) {
-    return NextResponse.json({ paid: false, error: "Missing session_id" }, { status: 400 });
+export async function POST(req: NextRequest) {
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  if (!keySecret) {
+    return NextResponse.json({ paid: false, error: "Razorpay not configured" }, { status: 503 });
   }
 
-  const secret = process.env.STRIPE_SECRET_KEY;
-  if (!secret) {
-    return NextResponse.json({ paid: false, error: "Stripe not configured" }, { status: 503 });
+  const body = await req.json().catch(() => ({})) as {
+    razorpay_order_id?: string;
+    razorpay_payment_id?: string;
+    razorpay_signature?: string;
+  };
+
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = body;
+
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    return NextResponse.json({ paid: false, error: "Missing payment fields" }, { status: 400 });
   }
 
-  const stripe = new Stripe(secret);
-  const session = await stripe.checkout.sessions.retrieve(sessionId);
+  // Razorpay signature = HMAC-SHA256(order_id + "|" + payment_id, key_secret)
+  const expected = crypto
+    .createHmac("sha256", keySecret)
+    .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+    .digest("hex");
 
-  // Accept either product — both are valid paid sessions
-  const validProducts = ["icao_photo", "bg_removal"];
-  const paid =
-    session.payment_status === "paid" &&
-    validProducts.includes(session.metadata?.product ?? "");
+  const paid = expected === razorpay_signature;
 
   return NextResponse.json({ paid });
 }

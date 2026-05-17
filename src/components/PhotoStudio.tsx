@@ -28,6 +28,7 @@ import {
   WATERMARK_TEXT,
 } from "@/lib/watermark";
 import type { BgRemovalProgress } from "@/lib/bg-removal";
+import { openRazorpayCheckout } from "@/lib/razorpay-client";
 
 const STORAGE_KEY = "icao_photo_paid";
 const DEV_DOWNLOAD = process.env.NEXT_PUBLIC_ALLOW_DEV_DOWNLOAD === "true";
@@ -103,26 +104,12 @@ export default function PhotoStudio() {
   // ── payment check ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (sessionStorage.getItem(STORAGE_KEY) === "1") setPaid(true);
+    if (sessionStorage.getItem(STORAGE_KEY) === "1" || DEV_DOWNLOAD) setPaid(true);
 
     const params = new URLSearchParams(window.location.search);
     if (params.get("testWatermark") === "1") {
       setShowWatermarkTools(true);
       setWatermarkOn(true);
-    }
-
-    const sessionId = params.get("session_id");
-    if (params.get("paid") === "1" && sessionId) {
-      fetch(`/api/verify?session_id=${encodeURIComponent(sessionId)}`)
-        .then((r) => r.json())
-        .then((d) => {
-          if (d.paid) {
-            setPaid(true);
-            sessionStorage.setItem(STORAGE_KEY, "1");
-            window.history.replaceState({}, "", "/");
-          }
-        })
-        .catch(() => {});
     }
   }, []);
 
@@ -297,13 +284,21 @@ export default function PhotoStudio() {
     setCheckoutLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/checkout", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Checkout failed");
-      if (data.url) window.location.href = data.url;
+      await openRazorpayCheckout({
+        product: "icao_photo",
+        onSuccess: () => {
+          setPaid(true);
+          sessionStorage.setItem(STORAGE_KEY, "1");
+          setCheckoutLoading(false);
+        },
+        onDismiss: () => setCheckoutLoading(false),
+        onError: (msg) => {
+          setError(msg);
+          setCheckoutLoading(false);
+        },
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Payment could not be started.");
-    } finally {
       setCheckoutLoading(false);
     }
   };

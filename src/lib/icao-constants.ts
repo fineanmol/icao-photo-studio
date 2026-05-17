@@ -9,11 +9,12 @@ export const FACE_RATIO_DEFAULT = 0.825;
 
 export const BACKGROUND_RGB = { r: 255, g: 255, b: 255 } as const;
 
-export const PRICE_DISPLAY = "$4.99";
-export const PRICE_CENTS = 499;
+/** Razorpay amounts are in paise (1 INR = 100 paise). */
+export const PRICE_DISPLAY = "₹399";
+export const PRICE_PAISE = 39900;
 
-export const BG_REMOVAL_PRICE_DISPLAY = "$1.99";
-export const BG_REMOVAL_PRICE_CENTS = 199;
+export const BG_REMOVAL_PRICE_DISPLAY = "₹149";
+export const BG_REMOVAL_PRICE_PAISE = 14900;
 
 export const GUIDELINES = [
   {

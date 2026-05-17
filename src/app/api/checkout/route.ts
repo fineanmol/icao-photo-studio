@@ -1,34 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
+import Razorpay from "razorpay";
 import {
-  BG_REMOVAL_PRICE_CENTS,
-  PRICE_CENTS,
+  BG_REMOVAL_PRICE_PAISE,
+  PRICE_PAISE,
 } from "@/lib/icao-constants";
 
 type Product = "icao_photo" | "bg_removal";
 
-const PRODUCTS: Record<
-  Product,
-  { name: string; description: string; amount: number }
-> = {
+const PRODUCTS: Record<Product, { name: string; description: string; amount: number }> = {
   icao_photo: {
     name: "ICAO Passport Photo — HD Download",
-    description: "630×810px ICAO-compliant JPEG. One-time download for this session.",
-    amount: PRICE_CENTS,
+    description: "630×810px ICAO-compliant JPEG, no watermark.",
+    amount: PRICE_PAISE,
   },
   bg_removal: {
     name: "Background Removal — Clean Download",
-    description:
-      "Download your background-removed image as transparent PNG or white JPEG. One-time download for this session.",
-    amount: BG_REMOVAL_PRICE_CENTS,
+    description: "Transparent PNG + white JPEG, full resolution, no watermark.",
+    amount: BG_REMOVAL_PRICE_PAISE,
   },
 };
 
 export async function POST(req: NextRequest) {
-  const secret = process.env.STRIPE_SECRET_KEY;
-  if (!secret) {
+  const keyId = process.env.RAZORPAY_KEY_ID;
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+  if (!keyId || !keySecret) {
     return NextResponse.json(
-      { error: "Stripe is not configured. Add STRIPE_SECRET_KEY to .env.local" },
+      { error: "Razorpay is not configured. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to .env.local" },
       { status: 503 },
     );
   }
@@ -38,35 +36,21 @@ export async function POST(req: NextRequest) {
     body.product === "bg_removal" ? "bg_removal" : "icao_photo";
   const product = PRODUCTS[productKey];
 
-  const stripe = new Stripe(secret);
-  const origin =
-    req.headers.get("origin") ??
-    process.env.NEXT_PUBLIC_APP_URL ??
-    "http://localhost:3000";
+  const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
 
-  const returnBase =
-    productKey === "bg_removal" ? `${origin}/bg-remover` : `${origin}/`;
-
-  const session = await stripe.checkout.sessions.create({
-    mode: "payment",
-    payment_method_types: ["card"],
-    line_items: [
-      {
-        price_data: {
-          currency: "usd",
-          product_data: {
-            name: product.name,
-            description: product.description,
-          },
-          unit_amount: product.amount,
-        },
-        quantity: 1,
-      },
-    ],
-    success_url: `${returnBase}?paid=1&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${returnBase}?canceled=1`,
-    metadata: { product: productKey },
+  const order = await razorpay.orders.create({
+    amount: product.amount,
+    currency: "INR",
+    receipt: `${productKey}_${Date.now()}`,
+    notes: { product: productKey },
   });
 
-  return NextResponse.json({ url: session.url });
+  return NextResponse.json({
+    orderId: order.id,
+    amount: order.amount,
+    currency: order.currency,
+    keyId,           // sent to client so it can open the modal
+    productName: product.name,
+    productDescription: product.description,
+  });
 }

@@ -11,6 +11,7 @@ import {
 import { isSupportedImageFile, prepareImageFile, FILE_INPUT_ACCEPT } from "@/lib/image-loader";
 import { applyWatermarkToUrl } from "@/lib/watermark";
 import { BG_REMOVAL_PRICE_DISPLAY } from "@/lib/icao-constants";
+import { openRazorpayCheckout } from "@/lib/razorpay-client";
 
 const STORAGE_KEY = "icao_bgremoval_paid";
 const DEV_DOWNLOAD = process.env.NEXT_PUBLIC_ALLOW_DEV_DOWNLOAD === "true";
@@ -179,23 +180,6 @@ export default function BgRemover() {
     if (sessionStorage.getItem(STORAGE_KEY) === "1" || DEV_DOWNLOAD) {
       setPaid(true);
     }
-    const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get("session_id");
-    if (params.get("paid") === "1" && sessionId) {
-      fetch(`/api/verify?session_id=${encodeURIComponent(sessionId)}`)
-        .then((r) => r.json())
-        .then((d: { paid?: boolean }) => {
-          if (d.paid) {
-            setPaid(true);
-            sessionStorage.setItem(STORAGE_KEY, "1");
-            window.history.replaceState({}, "", "/bg-remover");
-          }
-        })
-        .catch(() => {});
-    }
-    if (params.get("canceled") === "1") {
-      window.history.replaceState({}, "", "/bg-remover");
-    }
   }, []);
 
   /* ── load image ────────────────────────────────────────────── */
@@ -265,24 +249,26 @@ export default function BgRemover() {
     }
   }, [sourceUrl, model, paid]);
 
-  /* ── Stripe checkout ───────────────────────────────────────── */
+  /* ── Razorpay checkout ─────────────────────────────────────── */
   const startCheckout = useCallback(async () => {
     setCheckoutLoading(true);
+    setError(null);
     try {
-      const res = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ product: "bg_removal" }),
+      await openRazorpayCheckout({
+        product: "bg_removal",
+        onSuccess: () => {
+          setPaid(true);
+          sessionStorage.setItem(STORAGE_KEY, "1");
+          setCheckoutLoading(false);
+        },
+        onDismiss: () => setCheckoutLoading(false),
+        onError: (msg) => {
+          setError(msg);
+          setCheckoutLoading(false);
+        },
       });
-      const data = await res.json() as { url?: string; error?: string };
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        setError(data.error ?? "Checkout failed. Please try again.");
-        setCheckoutLoading(false);
-      }
-    } catch {
-      setError("Network error. Please try again.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Payment could not be started.");
       setCheckoutLoading(false);
     }
   }, []);
