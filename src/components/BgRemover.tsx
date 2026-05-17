@@ -9,6 +9,11 @@ import {
   removeImageBackgroundFull,
 } from "@/lib/bg-removal";
 import { isSupportedImageFile, prepareImageFile, FILE_INPUT_ACCEPT } from "@/lib/image-loader";
+import { applyWatermarkToUrl } from "@/lib/watermark";
+import { BG_REMOVAL_PRICE_DISPLAY } from "@/lib/icao-constants";
+
+const STORAGE_KEY = "icao_bgremoval_paid";
+const DEV_DOWNLOAD = process.env.NEXT_PUBLIC_ALLOW_DEV_DOWNLOAD === "true";
 
 /* ── helpers ──────────────────────────────────────────────── */
 function formatBytes(bytes: number) {
@@ -155,14 +160,45 @@ export default function BgRemover() {
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState<BgRemovalProgress | null>(null);
   const [result, setResult] = useState<BgRemovalResult | null>(null);
+  /** Watermarked preview URLs shown in the compare slider when not paid */
+  const [previewPngUrl, setPreviewPngUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [paid, setPaid] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   const [dragging, setDragging] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const prevSourceRef = useRef<string | null>(null);
+  const previewPngRef = useRef<string | null>(null);
 
-  /* load image */
+  /* ── payment check ─────────────────────────────────────────── */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (sessionStorage.getItem(STORAGE_KEY) === "1" || DEV_DOWNLOAD) {
+      setPaid(true);
+    }
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session_id");
+    if (params.get("paid") === "1" && sessionId) {
+      fetch(`/api/verify?session_id=${encodeURIComponent(sessionId)}`)
+        .then((r) => r.json())
+        .then((d: { paid?: boolean }) => {
+          if (d.paid) {
+            setPaid(true);
+            sessionStorage.setItem(STORAGE_KEY, "1");
+            window.history.replaceState({}, "", "/bg-remover");
+          }
+        })
+        .catch(() => {});
+    }
+    if (params.get("canceled") === "1") {
+      window.history.replaceState({}, "", "/bg-remover");
+    }
+  }, []);
+
+  /* ── load image ────────────────────────────────────────────── */
   const loadFile = useCallback(async (file: File) => {
     if (!isSupportedImageFile(file)) {
       setError("Unsupported file type. Please upload a JPEG, PNG, HEIC, TIFF or WebP image.");
@@ -171,10 +207,9 @@ export default function BgRemover() {
     setError(null);
     setResult(null);
     setProgress(null);
-
-    if (prevSourceRef.current) {
-      URL.revokeObjectURL(prevSourceRef.current);
-    }
+    if (previewPngRef.current) { URL.revokeObjectURL(previewPngRef.current); previewPngRef.current = null; }
+    setPreviewPngUrl(null);
+    if (prevSourceRef.current) URL.revokeObjectURL(prevSourceRef.current);
 
     const prepared = await prepareImageFile(file);
     prevSourceRef.current = prepared.url;
@@ -202,36 +237,70 @@ export default function BgRemover() {
     [loadFile],
   );
 
-  /* remove background */
+  /* ── remove background ─────────────────────────────────────── */
   const handleRemove = useCallback(async () => {
     if (!sourceUrl) return;
     setProcessing(true);
     setResult(null);
     setError(null);
+    if (previewPngRef.current) { URL.revokeObjectURL(previewPngRef.current); previewPngRef.current = null; }
+    setPreviewPngUrl(null);
     try {
       const res = await removeImageBackgroundFull(sourceUrl, model, (p) => setProgress(p));
       setResult(res);
+      // Create a watermarked preview for the comparison slider (shown to unpaid users)
+      if (!paid && !DEV_DOWNLOAD) {
+        const wm = await applyWatermarkToUrl(res.transparentPngUrl, {
+          text: "PREVIEW ONLY",
+          opacity: 0.4,
+        });
+        previewPngRef.current = wm;
+        setPreviewPngUrl(wm);
+      }
     } catch (e) {
       setError(`Background removal failed: ${(e as Error).message}`);
     } finally {
       setProcessing(false);
       setProgress(null);
     }
-  }, [sourceUrl, model]);
+  }, [sourceUrl, model, paid]);
 
-  /* clean up object URLs on unmount */
+  /* ── Stripe checkout ───────────────────────────────────────── */
+  const startCheckout = useCallback(async () => {
+    setCheckoutLoading(true);
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product: "bg_removal" }),
+      });
+      const data = await res.json() as { url?: string; error?: string };
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        setError(data.error ?? "Checkout failed. Please try again.");
+        setCheckoutLoading(false);
+      }
+    } catch {
+      setError("Network error. Please try again.");
+      setCheckoutLoading(false);
+    }
+  }, []);
+
+  /* ── clean up object URLs on unmount ───────────────────────── */
   useEffect(() => {
     return () => {
       if (result) {
         URL.revokeObjectURL(result.whiteJpegUrl);
         URL.revokeObjectURL(result.transparentPngUrl);
       }
+      if (previewPngRef.current) URL.revokeObjectURL(previewPngRef.current);
       if (prevSourceRef.current) URL.revokeObjectURL(prevSourceRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* download helpers */
+  /* ── download helpers ──────────────────────────────────────── */
   const downloadFile = (url: string, name: string) => {
     const a = document.createElement("a");
     a.href = url;
@@ -240,6 +309,11 @@ export default function BgRemover() {
   };
 
   const baseName = fileName.replace(/\.[^.]+$/, "") || "photo";
+  /** URL shown in comparison slider — watermarked preview until paid */
+  const sliderAfterUrl =
+    paid || DEV_DOWNLOAD
+      ? result?.transparentPngUrl ?? null
+      : (previewPngUrl ?? result?.transparentPngUrl ?? null);
 
   return (
     <div className="mx-auto max-w-3xl space-y-8 px-4 py-10 sm:px-6">
@@ -387,50 +461,93 @@ export default function BgRemover() {
       )}
 
       {/* Result */}
-      {result && sourceUrl && (
+      {result && sourceUrl && sliderAfterUrl && (
         <div className="space-y-5">
           <div className="flex items-center gap-2">
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-sm">✓</span>
             <h2 className="text-lg font-semibold text-slate-800">Background Removed</h2>
+            {!paid && !DEV_DOWNLOAD && (
+              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                Watermarked preview
+              </span>
+            )}
+            {(paid || DEV_DOWNLOAD) && (
+              <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+                Unlocked ✓
+              </span>
+            )}
           </div>
 
           {/* Compare slider */}
           <div className="flex justify-center">
             <CompareSlider
               before={sourceUrl}
-              after={result.transparentPngUrl}
+              after={sliderAfterUrl}
               width={result.width}
               height={result.height}
             />
           </div>
-          <p className="text-center text-xs text-slate-400">Drag the handle to compare before / after</p>
+          <p className="text-center text-xs text-slate-400">
+            Drag the handle to compare before / after
+            {!paid && !DEV_DOWNLOAD && " · preview is watermarked"}
+          </p>
 
           {/* Download options */}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <button
-              onClick={() => downloadFile(result.transparentPngUrl, `${baseName}_nobg.png`)}
-              className="flex flex-col items-start gap-1 rounded-xl border-2 border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-sky-300 hover:bg-sky-50"
-            >
-              <span className="flex items-center gap-2 font-semibold text-slate-800">
-                <span className="text-lg">🖼</span> PNG — Transparent
-              </span>
-              <span className="text-xs text-slate-500">
-                Alpha channel preserved. Best for design work, presentations, compositing.
-              </span>
-            </button>
+          {paid || DEV_DOWNLOAD ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                onClick={() => downloadFile(result.transparentPngUrl, `${baseName}_nobg.png`)}
+                className="flex flex-col items-start gap-1 rounded-xl border-2 border-emerald-200 bg-emerald-50 p-4 text-left shadow-sm transition hover:border-emerald-300 hover:bg-emerald-100"
+              >
+                <span className="flex items-center gap-2 font-semibold text-slate-800">
+                  <span className="text-lg">🖼</span> PNG — Transparent
+                </span>
+                <span className="text-xs text-slate-500">
+                  Alpha channel preserved. Best for design work, presentations, compositing.
+                </span>
+              </button>
 
-            <button
-              onClick={() => downloadFile(result.whiteJpegUrl, `${baseName}_white_bg.jpg`)}
-              className="flex flex-col items-start gap-1 rounded-xl border-2 border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50"
-            >
-              <span className="flex items-center gap-2 font-semibold text-slate-800">
-                <span className="text-lg">📄</span> JPEG — White Background
-              </span>
-              <span className="text-xs text-slate-500">
-                Smaller file, white backdrop. Ideal for passport / ID photos.
-              </span>
-            </button>
-          </div>
+              <button
+                onClick={() => downloadFile(result.whiteJpegUrl, `${baseName}_white_bg.jpg`)}
+                className="flex flex-col items-start gap-1 rounded-xl border-2 border-emerald-200 bg-emerald-50 p-4 text-left shadow-sm transition hover:border-emerald-300 hover:bg-emerald-100"
+              >
+                <span className="flex items-center gap-2 font-semibold text-slate-800">
+                  <span className="text-lg">📄</span> JPEG — White Background
+                </span>
+                <span className="text-xs text-slate-500">
+                  Smaller file, white backdrop. Ideal for passport / ID photos.
+                </span>
+              </button>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-sky-50 p-5">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">🔒</span>
+                <div className="flex-1">
+                  <p className="font-semibold text-slate-900">Unlock clean downloads</p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Pay once to download your background-removed image — transparent PNG and white JPEG included.
+                  </p>
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <button
+                      onClick={() => void startCheckout()}
+                      disabled={checkoutLoading}
+                      className="rounded-xl bg-gradient-to-r from-violet-600 to-sky-600 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:from-violet-700 hover:to-sky-700 disabled:opacity-60"
+                    >
+                      {checkoutLoading ? "Redirecting…" : `Unlock — ${BG_REMOVAL_PRICE_DISPLAY}`}
+                    </button>
+                    <span className="text-xs text-slate-400">Secure payment via Stripe</span>
+                  </div>
+                  <ul className="mt-3 space-y-1 text-xs text-slate-500">
+                    <li>✓ Transparent PNG (alpha channel)</li>
+                    <li>✓ White background JPEG</li>
+                    <li>✓ Full resolution, no watermark</li>
+                    <li>✓ One-time payment, instant download</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Process another */}
           <button
@@ -439,6 +556,8 @@ export default function BgRemover() {
               setSourceUrl(null);
               setFileName("");
               setFileSize(0);
+              if (previewPngRef.current) { URL.revokeObjectURL(previewPngRef.current); previewPngRef.current = null; }
+              setPreviewPngUrl(null);
               if (prevSourceRef.current) {
                 URL.revokeObjectURL(prevSourceRef.current);
                 prevSourceRef.current = null;

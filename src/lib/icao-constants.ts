@@ -12,6 +12,9 @@ export const BACKGROUND_RGB = { r: 255, g: 255, b: 255 } as const;
 export const PRICE_DISPLAY = "$4.99";
 export const PRICE_CENTS = 499;
 
+export const BG_REMOVAL_PRICE_DISPLAY = "$1.99";
+export const BG_REMOVAL_PRICE_CENTS = 199;
+
 export const GUIDELINES = [
   {
     id: "dimensions",
