@@ -18,15 +18,16 @@ export type ICAOSettings = {
   sharpen: number;
 };
 
+/** All adjustments default to 0 = neutral (no change to source photo). */
 export const defaultSettings: ICAOSettings = {
   faceRatio: FACE_RATIO_DEFAULT,
   offsetX: 0,
   offsetY: 0,
   brightness: 0,
-  contrast: 8,
+  contrast: 0,
   saturation: 0,
-  backgroundStrength: 85,
-  sharpen: 15,
+  backgroundStrength: 0,
+  sharpen: 0,
 };
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -39,6 +40,10 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+/**
+ * Applies brightness, contrast, saturation adjustments.
+ * All at 0 = identity (no pixel change).
+ */
 function applyAdjustments(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -50,22 +55,38 @@ function applyAdjustments(
 
   const imageData = ctx.getImageData(0, 0, w, h);
   const d = imageData.data;
-  const cFactor = (259 * (contrast + 255)) / (255 * (259 - contrast));
-  const satFactor = 1 + saturation / 100;
+
+  // Standard photo-editor contrast formula: cFactor of 1.0 = no change (at contrast=0)
+  const cFactor =
+    contrast === 0 ? 1 : (259 * (contrast + 255)) / (255 * (259 - contrast));
+  const satFactor = 1 + saturation / 100; // 1.0 at saturation=0
 
   for (let i = 0; i < d.length; i += 4) {
     let r = d[i];
     let g = d[i + 1];
     let b = d[i + 2];
 
-    r = cFactor * (r - 128) + 128 + brightness;
-    g = cFactor * (g - 128) + 128 + brightness;
-    b = cFactor * (b - 128) + 128 + brightness;
+    // Contrast (pivot at 128)
+    if (contrast !== 0) {
+      r = cFactor * (r - 128) + 128;
+      g = cFactor * (g - 128) + 128;
+      b = cFactor * (b - 128) + 128;
+    }
 
-    const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-    r = gray + (r - gray) * satFactor;
-    g = gray + (g - gray) * satFactor;
-    b = gray + (b - gray) * satFactor;
+    // Brightness (simple offset)
+    if (brightness !== 0) {
+      r += brightness;
+      g += brightness;
+      b += brightness;
+    }
+
+    // Saturation
+    if (saturation !== 0) {
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      r = gray + (r - gray) * satFactor;
+      g = gray + (g - gray) * satFactor;
+      b = gray + (b - gray) * satFactor;
+    }
 
     d[i] = Math.min(255, Math.max(0, r));
     d[i + 1] = Math.min(255, Math.max(0, g));
@@ -74,53 +95,38 @@ function applyAdjustments(
   ctx.putImageData(imageData, 0, 0);
 }
 
+/**
+ * Luminance-only background whitening.
+ * Blends near-white pixels toward pure white.
+ * Safe: does NOT modify dark pixels (face/hair) or force any area to white.
+ * strength=0 → skip entirely. strength=100 → whiten pixels above lum ~195.
+ */
 function whitenBackground(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
   strength: number,
 ) {
+  if (strength <= 0) return;
+
   const imageData = ctx.getImageData(0, 0, w, h);
   const d = imageData.data;
-  const threshold = 255 - (strength / 100) * 55;
 
-  const corners = [
-    [0, 0],
-    [w - 1, 0],
-    [0, h - 1],
-    [w - 1, h - 1],
-  ];
-  let bgR = 0;
-  let bgG = 0;
-  let bgB = 0;
-  for (const [cx, cy] of corners) {
-    const i = (cy * w + cx) * 4;
-    bgR += d[i];
-    bgG += d[i + 1];
-    bgB += d[i + 2];
-  }
-  bgR /= 4;
-  bgG /= 4;
-  bgB /= 4;
+  // threshold: at strength 100 → lum 195; at strength 50 → lum 227
+  const threshold = 255 - (strength / 100) * 60;
 
-  const dist = (r: number, g: number, b: number) =>
-    Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2);
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i];
+    const g = d[i + 1];
+    const b = d[i + 2];
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
 
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-      const r = d[i];
-      const g = d[i + 1];
-      const b = d[i + 2];
-      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-      const edge =
-        Math.min(x, y, w - 1 - x, h - 1 - y) < Math.min(w, h) * 0.08;
-      if (lum > threshold || dist(r, g, b) < 42 || edge) {
-        const blend = edge ? 1 : Math.min(1, (lum - threshold + 30) / 80);
-        d[i] = r + (BACKGROUND_RGB.r - r) * blend;
-        d[i + 1] = g + (BACKGROUND_RGB.g - g) * blend;
-        d[i + 2] = b + (BACKGROUND_RGB.b - b) * blend;
-      }
+    if (lum > threshold) {
+      // Smooth blend: 0 at threshold, 1 at lum=255
+      const blend = (lum - threshold) / (255 - threshold);
+      d[i] = Math.round(r + (BACKGROUND_RGB.r - r) * blend);
+      d[i + 1] = Math.round(g + (BACKGROUND_RGB.g - g) * blend);
+      d[i + 2] = Math.round(b + (BACKGROUND_RGB.b - b) * blend);
     }
   }
   ctx.putImageData(imageData, 0, 0);
@@ -146,40 +152,62 @@ function unsharpMask(
     for (let c = 0; c < 3; c++) {
       orig.data[i + c] = Math.min(
         255,
-        Math.max(0, orig.data[i + c] + factor * (orig.data[i + c] - blurred.data[i + c])),
+        Math.max(
+          0,
+          orig.data[i + c] +
+            factor * (orig.data[i + c] - blurred.data[i + c]),
+        ),
       );
     }
   }
   ctx.putImageData(orig, 0, 0);
 }
 
+/**
+ * Computes source crop region so that:
+ *  - face fills faceRatio of ICAO_HEIGHT vertically
+ *  - face is horizontally centered
+ *  - hair top sits at ~8% from the top of the output (ICAO standard framing)
+ *  - chin sits at ~90% from the top, leaving ~10% below
+ *
+ * offsetX / offsetY let the user nudge in source pixels.
+ */
 export function computeCrop(
   imgW: number,
   imgH: number,
   face: FaceBox,
   settings: ICAOSettings,
 ): { sx: number; sy: number; sw: number; sh: number } {
+  // Scale so face height maps to faceRatio of output height
   const targetFaceH = ICAO_HEIGHT * settings.faceRatio;
   const scale = targetFaceH / face.height;
+
   const sw = ICAO_WIDTH / scale;
   const sh = ICAO_HEIGHT / scale;
 
+  // Horizontal: center on face
   const faceCenterX = face.x + face.width / 2;
-  const faceCenterY = face.y + face.height * 0.48;
-
   let sx = faceCenterX - sw / 2 + settings.offsetX;
-  let sy = faceCenterY - sh * 0.42 + settings.offsetY;
 
+  // Vertical: place hair top (face.y) at 8% from top of output frame
+  // → sy = face.y - sh * 0.08
+  let sy = face.y - sh * 0.08 + settings.offsetY;
+
+  // Clamp to image bounds
   sx = Math.max(0, Math.min(imgW - sw, sx));
   sy = Math.max(0, Math.min(imgH - sh, sy));
 
-  if (sw > imgW) {
-    const ratio = imgW / sw;
-    return { sx: 0, sy: sy * ratio, sw: imgW, sh: sh * ratio };
-  }
-  if (sh > imgH) {
-    const ratio = imgH / sh;
-    return { sx: sx * ratio, sy: 0, sw: sw * ratio, sh: imgH };
+  // If the image is smaller than the desired crop, scale down without distortion
+  if (sw > imgW || sh > imgH) {
+    const safeScale = Math.min(imgW / sw, imgH / sh);
+    const newSw = sw * safeScale;
+    const newSh = sh * safeScale;
+    return {
+      sx: (imgW - newSw) / 2,
+      sy: (imgH - newSh) / 2,
+      sw: newSw,
+      sh: newSh,
+    };
   }
 
   return { sx, sy, sw, sh };
@@ -197,11 +225,12 @@ export async function processToICAO(
   const srcCtx = getCanvas2D(srcCanvas);
   srcCtx.drawImage(img, 0, 0);
 
+  // Fallback face box: assume face occupies central portrait region
   const fallbackFace: FaceBox = {
-    x: img.naturalWidth * 0.25,
-    y: img.naturalHeight * 0.12,
-    width: img.naturalWidth * 0.5,
-    height: img.naturalHeight * 0.65,
+    x: img.naturalWidth * 0.2,
+    y: img.naturalHeight * 0.05,
+    width: img.naturalWidth * 0.6,
+    height: img.naturalHeight * 0.82,
   };
 
   const crop = computeCrop(
@@ -218,6 +247,10 @@ export async function processToICAO(
 
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, ICAO_WIDTH, ICAO_HEIGHT);
+
+  // Use high-quality downscaling
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
 
   ctx.drawImage(
     srcCanvas,

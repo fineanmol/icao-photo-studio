@@ -28,20 +28,15 @@ import {
 } from "@/lib/watermark";
 
 const STORAGE_KEY = "icao_photo_paid";
-const DEV_DOWNLOAD =
-  process.env.NEXT_PUBLIC_ALLOW_DEV_DOWNLOAD === "true";
+const DEV_DOWNLOAD = process.env.NEXT_PUBLIC_ALLOW_DEV_DOWNLOAD === "true";
 
-function statusColor(status: ValidationItem["status"]) {
-  switch (status) {
-    case "pass":
-      return "text-emerald-700 bg-emerald-50 border-emerald-200";
-    case "warn":
-      return "text-amber-800 bg-amber-50 border-amber-200";
-    case "fail":
-      return "text-red-800 bg-red-50 border-red-200";
-    default:
-      return "text-slate-600 bg-slate-50 border-slate-200";
-  }
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+function statusColor(s: ValidationItem["status"]) {
+  if (s === "pass") return "text-emerald-700 bg-emerald-50 border-emerald-200";
+  if (s === "warn") return "text-amber-800 bg-amber-50 border-amber-200";
+  if (s === "fail") return "text-red-800 bg-red-50 border-red-200";
+  return "text-slate-600 bg-slate-50 border-slate-200";
 }
 
 function StatusIcon({ status }: { status: ValidationItem["status"] }) {
@@ -51,30 +46,60 @@ function StatusIcon({ status }: { status: ValidationItem["status"] }) {
   return <span aria-hidden>○</span>;
 }
 
+function formatSliderValue(value: number, prefix = "", suffix = "") {
+  const sign = value > 0 ? "+" : "";
+  return `${prefix}${sign}${value}${suffix}`;
+}
+
+// ─── component ──────────────────────────────────────────────────────────────
+
 export default function PhotoStudio() {
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
-  const [face, setFace] = useState<FaceBox | null>(null);
   const [settings, setSettings] = useState<ICAOSettings>(defaultSettings);
   const [finalCanvas, setFinalCanvas] = useState<HTMLCanvasElement | null>(null);
   const [validations, setValidations] = useState<ValidationItem[]>([]);
   const [processing, setProcessing] = useState(false);
   const [loadingImage, setLoadingImage] = useState(false);
   const [convertNote, setConvertNote] = useState<string | null>(null);
-  const [modelsReady, setModelsReady] = useState(false);
   const [paid, setPaid] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [watermarkOn, setWatermarkOn] = useState(true);
   const [showWatermarkTools, setShowWatermarkTools] = useState(DEV_DOWNLOAD);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
+
+  // Refs that don't cause re-renders when updated
+  const faceRef = useRef<FaceBox | null>(null);
+  const modelsReadyRef = useRef(false);
+  const processGenRef = useRef(0);
+  const sourceUrlRef = useRef<string | null>(null);
+  const settingsRef = useRef<ICAOSettings>(settings);
   const revokeSourceRef = useRef<(() => void) | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const previewRef = useRef<HTMLCanvasElement>(null);
+
+  // Keep refs in sync with state without causing extra effects
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
+  useEffect(() => { sourceUrlRef.current = sourceUrl; }, [sourceUrl]);
+
+  // ── face model loading ───────────────────────────────────────────────────
 
   useEffect(() => {
     loadFaceModels()
-      .then(() => setModelsReady(true))
-      .catch(() => setModelsReady(false));
+      .then(() => {
+        modelsReadyRef.current = true;
+        // If a photo was already loaded before models finished, re-run detection
+        if (sourceUrlRef.current && !faceRef.current) {
+          void doProcess(sourceUrlRef.current, settingsRef.current);
+        }
+      })
+      .catch(() => {
+        // Models unavailable — processing still works with fallback crop
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── payment state ────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -87,8 +112,7 @@ export default function PhotoStudio() {
     }
 
     const sessionId = params.get("session_id");
-    const paidParam = params.get("paid");
-    if (paidParam === "1" && sessionId) {
+    if (params.get("paid") === "1" && sessionId) {
       fetch(`/api/verify?session_id=${encodeURIComponent(sessionId)}`)
         .then((r) => r.json())
         .then((data) => {
@@ -102,70 +126,94 @@ export default function PhotoStudio() {
     }
   }, []);
 
-  const runProcess = useCallback(async () => {
-    if (!sourceUrl) return;
-    setProcessing(true);
-    setError(null);
-    try {
-      const img = new Image();
-      await new Promise<void>((res, rej) => {
-        img.onload = () => res();
-        img.onerror = rej;
-        img.src = sourceUrl;
-      });
+  // ── core processing ──────────────────────────────────────────────────────
 
-      let detected = face;
-      if (modelsReady) {
-        detected = await detectFace(img);
-        if (detected) setFace(detected);
+  /**
+   * Stable callback (empty deps) — reads all values from refs or passed args.
+   * Face detection runs only if models are ready AND no face has been cached yet.
+   * Subsequent calls (settings changes) skip detection and go straight to render.
+   */
+  const doProcess = useCallback(
+    async (url: string, currentSettings: ICAOSettings) => {
+      const gen = ++processGenRef.current;
+      setProcessing(true);
+      setError(null);
+
+      try {
+        const img = new Image();
+        await new Promise<void>((res, rej) => {
+          img.onload = () => res();
+          img.onerror = rej;
+          img.src = url;
+        });
+        if (gen !== processGenRef.current) return;
+
+        // Detect face once per photo (cached in ref, not state)
+        if (modelsReadyRef.current && !faceRef.current) {
+          const detected = await detectFace(img);
+          if (gen !== processGenRef.current) return;
+          if (detected) faceRef.current = detected;
+        }
+
+        const out = await processToICAO(url, faceRef.current, currentSettings);
+        if (gen !== processGenRef.current) return;
+
+        setFinalCanvas(out);
+
+        // Validation uses the detected face for face-ratio estimate
+        const fallback: FaceBox = {
+          x: img.naturalWidth * 0.2,
+          y: img.naturalHeight * 0.05,
+          width: img.naturalWidth * 0.6,
+          height: img.naturalHeight * 0.82,
+        };
+        const f = faceRef.current ?? fallback;
+        const crop = computeCrop(img.naturalWidth, img.naturalHeight, f, currentSettings);
+        setValidations(
+          validateICAO(out, faceRef.current, f.height * (ICAO_WIDTH / crop.sw)),
+        );
+      } catch {
+        if (gen === processGenRef.current) {
+          setError("Could not process this image. Try another photo.");
+        }
+      } finally {
+        if (gen === processGenRef.current) setProcessing(false);
       }
+    },
+    [], // stable — reads from refs, receives args
+  );
 
-      const out = await processToICAO(sourceUrl, detected, settings);
-      setFinalCanvas(out);
-
-      const fallback: FaceBox = {
-        x: img.naturalWidth * 0.25,
-        y: img.naturalHeight * 0.12,
-        width: img.naturalWidth * 0.5,
-        height: img.naturalHeight * 0.65,
-      };
-      const f = detected ?? fallback;
-      const crop = computeCrop(img.naturalWidth, img.naturalHeight, f, settings);
-      setValidations(validateICAO(out, detected, f.height * (ICAO_WIDTH / crop.sw)));
-    } catch {
-      setError("Could not process this image. Try another JPG or PNG.");
-    } finally {
-      setProcessing(false);
-    }
-  }, [sourceUrl, face, settings, modelsReady]);
-
+  // Debounced trigger: fires on sourceUrl OR settings change
   useEffect(() => {
     if (!sourceUrl) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      void runProcess();
-    }, 350);
+      void doProcess(sourceUrl, settings);
+    }, 300);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [sourceUrl, settings, runProcess]);
+  }, [sourceUrl, settings, doProcess]);
+
+  // ── file handling ────────────────────────────────────────────────────────
 
   const onFile = async (file: File) => {
     setError(null);
     setConvertNote(null);
     setLoadingImage(true);
+    setFinalCanvas(null);
+    setValidations([]);
     try {
       revokeSourceRef.current?.();
       revokeSourceRef.current = null;
-      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+      faceRef.current = null; // reset face for new photo
 
       const prepared = await prepareImageFile(file);
       revokeSourceRef.current = prepared.revoke;
       setSourceUrl(prepared.url);
       if (prepared.convertedFrom) {
-        setConvertNote(`Converted ${prepared.convertedFrom} locally for editing.`);
+        setConvertNote(`Converted from ${prepared.convertedFrom} in your browser.`);
       }
-      setFace(null);
       setPaid(false);
       setWatermarkOn(true);
       sessionStorage.removeItem(STORAGE_KEY);
@@ -180,10 +228,11 @@ export default function PhotoStudio() {
     }
   };
 
+  // ── download / payment ───────────────────────────────────────────────────
+
   const download = async () => {
-    const canvas = finalCanvas;
-    if (!canvas) return;
-    const blob = await canvasToBlob(canvas);
+    if (!finalCanvas) return;
+    const blob = await canvasToBlob(finalCanvas);
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -213,11 +262,8 @@ export default function PhotoStudio() {
     }
   };
 
-  const update = <K extends keyof ICAOSettings>(key: K, value: ICAOSettings[K]) => {
-    setSettings((s) => ({ ...s, [key]: value }));
-  };
+  // ── canvas preview ───────────────────────────────────────────────────────
 
-  const previewRef = useRef<HTMLCanvasElement>(null);
   const showWatermark = !paid && watermarkOn;
 
   useEffect(() => {
@@ -235,6 +281,21 @@ export default function PhotoStudio() {
     await downloadWatermarkedPreview(finalCanvas);
   };
 
+  // ── settings helpers ─────────────────────────────────────────────────────
+
+  const update = <K extends keyof ICAOSettings>(key: K, value: ICAOSettings[K]) =>
+    setSettings((s) => ({ ...s, [key]: value }));
+
+  const resetAdjustments = () =>
+    setSettings({
+      ...defaultSettings,
+      faceRatio: settings.faceRatio, // preserve face scale
+      offsetX: settings.offsetX,
+      offsetY: settings.offsetY,
+    });
+
+  // ── render ───────────────────────────────────────────────────────────────
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
       <header className="mb-10 text-center">
@@ -245,12 +306,13 @@ export default function PhotoStudio() {
           Passport Photo Studio
         </h1>
         <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">
-          Convert any portrait to {ICAO_WIDTH}×810px with white background, correct face
-          framing, and automated compliance checks — ready for passport applications.
+          Convert any portrait to {ICAO_WIDTH}×810 px — auto face detection, white
+          background, compliance check. Ready for passport applications.
         </p>
       </header>
 
       <div className="grid gap-8 lg:grid-cols-[1fr_340px]">
+        {/* ── Left column ── */}
         <section className="space-y-6">
           {!sourceUrl ? (
             <button
@@ -262,13 +324,13 @@ export default function PhotoStudio() {
                 const f = e.dataTransfer.files[0];
                 if (f) void onFile(f);
               }}
-              className="flex min-h-[420px] w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-sky-200 bg-gradient-to-b from-sky-50/80 to-white p-10 transition hover:border-sky-400 hover:bg-sky-50/50"
+              className="flex min-h-[420px] w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-sky-200 bg-gradient-to-b from-sky-50/80 to-white p-10 text-center transition hover:border-sky-400 hover:bg-sky-50/50"
             >
-              <span className="text-5xl">📷</span>
-              <span className="mt-4 text-xl font-semibold text-slate-800">
+              <span className="text-6xl">📷</span>
+              <span className="mt-5 text-xl font-semibold text-slate-800">
                 Drop your photo here
               </span>
-              <span className="mt-2 max-w-md text-center text-slate-500">
+              <span className="mt-2 max-w-md text-slate-500">
                 or click to browse · {SUPPORTED_FORMATS_LABEL}
               </span>
               <span className="mt-6 rounded-full bg-sky-600 px-6 py-2.5 text-sm font-medium text-white">
@@ -277,9 +339,10 @@ export default function PhotoStudio() {
             </button>
           ) : (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              {/* Header row */}
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-sm font-medium text-slate-500">
-                  Preview · {ICAO_WIDTH}×810px
+                  Preview · {ICAO_WIDTH}×810 px
                   {showWatermark && (
                     <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
                       Watermarked
@@ -294,9 +357,12 @@ export default function PhotoStudio() {
                   Change photo
                 </button>
               </div>
+
               {convertNote && (
                 <p className="mb-2 text-xs text-sky-700">{convertNote}</p>
               )}
+
+              {/* Canvas preview */}
               <div className="relative mx-auto max-w-[315px]">
                 <canvas
                   ref={previewRef}
@@ -306,13 +372,35 @@ export default function PhotoStudio() {
                   style={{ aspectRatio: `${ICAO_WIDTH}/810` }}
                 />
                 {(processing || loadingImage) && (
-                  <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-white/70">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-lg bg-white/80">
+                    <svg
+                      className="h-8 w-8 animate-spin text-sky-600"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                      />
+                    </svg>
                     <span className="text-sm font-medium text-slate-700">
-                      {loadingImage ? "Loading image…" : "Processing…"}
+                      {loadingImage ? "Loading…" : "Processing…"}
                     </span>
                   </div>
                 )}
               </div>
+
+              {/* Actions */}
               <div className="mt-4 flex flex-wrap gap-3">
                 {paid ? (
                   <button
@@ -321,7 +409,7 @@ export default function PhotoStudio() {
                     disabled={!finalCanvas}
                     className="flex-1 rounded-xl bg-emerald-600 px-5 py-3 font-semibold text-white shadow hover:bg-emerald-700 disabled:opacity-50"
                   >
-                    Download ICAO JPEG
+                    ↓ Download ICAO JPEG
                   </button>
                 ) : (
                   <button
@@ -339,10 +427,14 @@ export default function PhotoStudio() {
                 )}
                 <button
                   type="button"
-                  onClick={() => void runProcess()}
-                  className="rounded-xl border border-slate-200 px-5 py-3 font-medium text-slate-700 hover:bg-slate-50"
+                  onClick={() => {
+                    faceRef.current = null;
+                    if (sourceUrl) void doProcess(sourceUrl, settings);
+                  }}
+                  disabled={processing}
+                  className="rounded-xl border border-slate-200 px-5 py-3 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 >
-                  Re-process
+                  Re-detect
                 </button>
               </div>
             </div>
@@ -356,6 +448,7 @@ export default function PhotoStudio() {
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) void onFile(f);
+              e.target.value = "";
             }}
           />
 
@@ -365,6 +458,7 @@ export default function PhotoStudio() {
             </p>
           )}
 
+          {/* Compliance panel */}
           {validations.length > 0 && (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <h2 className="text-lg font-semibold text-slate-900">Compliance check</h2>
@@ -374,7 +468,7 @@ export default function PhotoStudio() {
                     key={v.id}
                     className={`flex gap-3 rounded-lg border px-3 py-2.5 text-sm ${statusColor(v.status)}`}
                   >
-                    <span className="mt-0.5 font-bold">
+                    <span className="mt-0.5 w-4 shrink-0 font-bold">
                       <StatusIcon status={v.status} />
                     </span>
                     <div>
@@ -388,78 +482,124 @@ export default function PhotoStudio() {
           )}
         </section>
 
-        <aside className="space-y-6">
+        {/* ── Right sidebar ── */}
+        <aside className="space-y-5">
+          {/* Adjustments panel */}
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-semibold text-slate-900">ICAO adjustments</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Fine-tune framing and quality. Output is always {ICAO_WIDTH}×810px.
-            </p>
-            <div className="mt-5 space-y-5">
-              <Slider
-                label="Face scale (80–85%)"
-                min={78}
-                max={88}
-                value={Math.round(settings.faceRatio * 100)}
-                onChange={(v) => update("faceRatio", v / 100)}
-                hint={`${Math.round(settings.faceRatio * 100)}% of frame height`}
-              />
-              <Slider
-                label="Horizontal position"
-                min={-80}
-                max={80}
-                value={settings.offsetX}
-                onChange={(v) => update("offsetX", v)}
-              />
-              <Slider
-                label="Vertical position"
-                min={-80}
-                max={80}
-                value={settings.offsetY}
-                onChange={(v) => update("offsetY", v)}
-              />
-              <Slider
-                label="Background whitening"
-                min={50}
-                max={100}
-                value={settings.backgroundStrength}
-                onChange={(v) => update("backgroundStrength", v)}
-              />
-              <Slider
-                label="Brightness"
-                min={-40}
-                max={40}
-                value={settings.brightness}
-                onChange={(v) => update("brightness", v)}
-              />
-              <Slider
-                label="Contrast"
-                min={-20}
-                max={40}
-                value={settings.contrast}
-                onChange={(v) => update("contrast", v)}
-              />
-              <Slider
-                label="Saturation"
-                min={-30}
-                max={30}
-                value={settings.saturation}
-                onChange={(v) => update("saturation", v)}
-              />
-              <Slider
-                label="Sharpen"
-                min={0}
-                max={40}
-                value={settings.sharpen}
-                onChange={(v) => update("sharpen", v)}
-              />
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Adjustments</h2>
+                <p className="text-xs text-slate-500">All sliders start at 0 = no change.</p>
+              </div>
+              <button
+                type="button"
+                onClick={resetAdjustments}
+                className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Reset
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div className="border-b border-slate-100 pb-4">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Framing
+                </p>
+                <div className="space-y-4">
+                  <Slider
+                    label="Face scale"
+                    hint={`${Math.round(settings.faceRatio * 100)}% · ICAO: 80–85%`}
+                    hintColor={
+                      settings.faceRatio >= 0.8 && settings.faceRatio <= 0.85
+                        ? "text-emerald-600"
+                        : "text-amber-600"
+                    }
+                    min={74}
+                    max={90}
+                    step={1}
+                    value={Math.round(settings.faceRatio * 100)}
+                    onChange={(v) => update("faceRatio", v / 100)}
+                  />
+                  <Slider
+                    label="Shift horizontal"
+                    hint={formatSliderValue(settings.offsetX, "", "px")}
+                    min={-120}
+                    max={120}
+                    step={4}
+                    value={settings.offsetX}
+                    onChange={(v) => update("offsetX", v)}
+                  />
+                  <Slider
+                    label="Shift vertical"
+                    hint={formatSliderValue(settings.offsetY, "", "px")}
+                    min={-120}
+                    max={120}
+                    step={4}
+                    value={settings.offsetY}
+                    onChange={(v) => update("offsetY", v)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Color &amp; quality
+                </p>
+                <div className="space-y-4">
+                  <Slider
+                    label="Brightness"
+                    hint={formatSliderValue(settings.brightness)}
+                    min={-60}
+                    max={60}
+                    step={5}
+                    value={settings.brightness}
+                    onChange={(v) => update("brightness", v)}
+                  />
+                  <Slider
+                    label="Contrast"
+                    hint={formatSliderValue(settings.contrast)}
+                    min={-40}
+                    max={40}
+                    step={5}
+                    value={settings.contrast}
+                    onChange={(v) => update("contrast", v)}
+                  />
+                  <Slider
+                    label="Saturation"
+                    hint={formatSliderValue(settings.saturation)}
+                    min={-50}
+                    max={50}
+                    step={5}
+                    value={settings.saturation}
+                    onChange={(v) => update("saturation", v)}
+                  />
+                  <Slider
+                    label="Sharpen"
+                    hint={String(settings.sharpen)}
+                    min={0}
+                    max={50}
+                    step={5}
+                    value={settings.sharpen}
+                    onChange={(v) => update("sharpen", v)}
+                  />
+                  <Slider
+                    label="BG whiten (near-white only)"
+                    hint={`${settings.backgroundStrength}%`}
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={settings.backgroundStrength}
+                    onChange={(v) => update("backgroundStrength", v)}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-5">
-            <div className="flex items-start justify-between gap-2">
-              <h2 className="text-lg font-semibold text-slate-900">
-                Watermark (local)
-              </h2>
+          {/* Watermark tools */}
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-slate-900">Watermark (local)</h2>
               <button
                 type="button"
                 onClick={() => setShowWatermarkTools((v) => !v)}
@@ -468,46 +608,45 @@ export default function PhotoStudio() {
                 {showWatermarkTools ? "Hide" : "Show"}
               </button>
             </div>
-            <p className="mt-1 text-sm text-slate-600">
-              Applied in your browser only — text: &quot;{WATERMARK_TEXT}&quot;
-            </p>
             {showWatermarkTools && (
-              <div className="mt-4 space-y-3">
+              <div className="mt-3 space-y-3">
+                <p className="text-xs text-slate-500">
+                  Text: &quot;{WATERMARK_TEXT}&quot; — applied in browser only.
+                </p>
                 <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
                   <input
                     type="checkbox"
                     checked={watermarkOn}
                     disabled={paid}
                     onChange={(e) => setWatermarkOn(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 accent-sky-600"
+                    className="h-4 w-4 accent-sky-600"
                   />
-                  Show watermark on preview
+                  Show on preview
                 </label>
                 <button
                   type="button"
                   onClick={() => void downloadWatermarkedTest()}
                   disabled={!finalCanvas}
-                  className="w-full rounded-xl border border-amber-300 bg-white px-4 py-2.5 text-sm font-semibold text-amber-900 hover:bg-amber-50 disabled:opacity-50"
+                  className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-50 disabled:opacity-50"
                 >
-                  Download watermarked JPEG (test)
+                  Download watermarked (test)
                 </button>
-                <p className="text-xs text-slate-500">
-                  Open with{" "}
-                  <code className="rounded bg-white px-1">?testWatermark=1</code> to
-                  expand this panel on load.
+                <p className="text-xs text-slate-400">
+                  URL flag: <code className="rounded bg-white/80 px-1">?testWatermark=1</code>
                 </p>
               </div>
             )}
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          {/* ICAO requirements */}
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               ICAO requirements
             </h2>
             <ul className="mt-3 space-y-2 text-sm text-slate-700">
               {GUIDELINES.map((g) => (
                 <li key={g.id} className="flex gap-2">
-                  <span className="text-sky-600">•</span>
+                  <span className="text-sky-500 shrink-0">•</span>
                   <span>
                     <strong>{g.label}</strong> — {g.detail}
                   </span>
@@ -516,11 +655,12 @@ export default function PhotoStudio() {
             </ul>
           </div>
 
-          <div className="rounded-2xl bg-slate-900 p-5 text-white">
-            <p className="font-semibold">Commercial license</p>
-            <p className="mt-2 text-sm text-slate-300">
-              Pay once per photo for watermark-free {ICAO_WIDTH}×810 JPEG download.
-              Processing runs in your browser — photos are not uploaded to our servers.
+          {/* Commercial badge */}
+          <div className="rounded-2xl bg-slate-900 p-4 text-white">
+            <p className="font-semibold text-sm">One-time payment · {PRICE_DISPLAY}</p>
+            <p className="mt-1.5 text-xs text-slate-300 leading-relaxed">
+              Pay once for a watermark-free {ICAO_WIDTH}×810 JPEG.
+              Photos never leave your device — all processing is local.
             </p>
           </div>
         </aside>
@@ -529,34 +669,43 @@ export default function PhotoStudio() {
   );
 }
 
+// ─── Slider ──────────────────────────────────────────────────────────────────
+
 function Slider({
   label,
+  hint,
+  hintColor = "text-slate-400",
   min,
   max,
+  step = 1,
   value,
   onChange,
-  hint,
 }: {
   label: string;
+  hint?: string;
+  hintColor?: string;
   min: number;
   max: number;
+  step?: number;
   value: number;
   onChange: (v: number) => void;
-  hint?: string;
 }) {
   return (
-    <label className="block">
+    <label className="block select-none">
       <div className="flex justify-between text-sm">
         <span className="font-medium text-slate-700">{label}</span>
-        {hint && <span className="text-slate-400">{hint}</span>}
+        {hint !== undefined && (
+          <span className={`tabular-nums ${hintColor}`}>{hint}</span>
+        )}
       </div>
       <input
         type="range"
         min={min}
         max={max}
+        step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="mt-2 h-2 w-full cursor-pointer accent-sky-600"
+        className="mt-1.5 h-2 w-full cursor-pointer accent-sky-600"
       />
     </label>
   );

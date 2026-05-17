@@ -22,27 +22,48 @@ export async function detectFace(
   await loadFaceModels();
   const faceapi = await import("face-api.js");
   const detection = await faceapi
-    .detectSingleFace(image, new faceapi.TinyFaceDetectorOptions())
+    .detectSingleFace(
+      image,
+      new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 }),
+    )
     .withFaceLandmarks(true);
 
   if (!detection) return null;
 
-  const landmarks = detection.landmarks;
+  const lm = detection.landmarks;
 
-  const jaw = landmarks.getJawOutline();
-  const left = Math.min(...jaw.map((p) => p.x));
-  const right = Math.max(...jaw.map((p) => p.x));
-  const top = Math.min(...landmarks.getLeftEye().map((p) => p.y));
-  const bottom = Math.max(...jaw.map((p) => p.y));
+  // Horizontal bounds: use full jaw outline width + ears margin
+  const jaw = lm.getJawOutline();
+  const jawLeft = Math.min(...jaw.map((p) => p.x));
+  const jawRight = Math.max(...jaw.map((p) => p.x));
+  const jawWidth = jawRight - jawLeft;
 
-  const padX = (right - left) * 0.35;
-  const padTop = (bottom - top) * 0.55;
-  const padBottom = (bottom - top) * 0.12;
+  // Chin: lowest jaw point
+  const chin = Math.max(...jaw.map((p) => p.y));
+
+  // Use eyebrows as the topmost reliable reference point
+  const leftBrow = lm.getLeftEyeBrow();
+  const rightBrow = lm.getRightEyeBrow();
+  const browTop = Math.min(
+    ...leftBrow.map((p) => p.y),
+    ...rightBrow.map((p) => p.y),
+  );
+
+  // Estimate hair top: from eyebrow top, hair line is roughly 40% of the
+  // chin-to-brow span above the brows. Add 15% buffer for the crown.
+  const chinToBrow = chin - browTop;
+  const hairTop = browTop - chinToBrow * 0.55;
+
+  // Small chin margin
+  const chinBottom = chin + chinToBrow * 0.08;
+
+  // Horizontal: add ear/cheek margin beyond jaw edges
+  const padX = jawWidth * 0.18;
 
   return {
-    x: Math.max(0, left - padX),
-    y: Math.max(0, top - padTop),
-    width: right - left + padX * 2,
-    height: bottom - top + padTop + padBottom,
+    x: Math.max(0, jawLeft - padX),
+    y: Math.max(0, hairTop),
+    width: jawWidth + padX * 2,
+    height: chinBottom - Math.max(0, hairTop),
   };
 }
