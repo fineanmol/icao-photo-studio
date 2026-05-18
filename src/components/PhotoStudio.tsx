@@ -196,7 +196,14 @@ export default function PhotoStudio() {
         const crop = computeCrop(img.naturalWidth, img.naturalHeight, f, currentSettings, std.widthPx, std.heightPx);
         const faceOutputHeight = f.height * (std.heightPx / crop.sh);
         setValidations(
-          validateICAO(out, faceRef.current, faceOutputHeight, bgRemovedRef.current),
+          validateICAO(out, faceRef.current, faceOutputHeight, bgRemovedRef.current, {
+            widthPx:      std.widthPx,
+            heightPx:     std.heightPx,
+            faceRatioMin: std.faceRatioMin,
+            faceRatioMax: std.faceRatioMax,
+            label:        std.label,
+            bgColorHex:   bgColorRef.current.hex,
+          }),
         );
       } catch {
         if (gen === processGenRef.current)
@@ -485,34 +492,41 @@ export default function PhotoStudio() {
       </header>
 
       {/* ── Document Standard Selector ─────────────────────────────── */}
-      <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">
+      <div className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <label htmlFor="std-select" className="text-xs font-semibold uppercase tracking-widest text-slate-400 whitespace-nowrap">
           Document type
-        </p>
-        <div className="space-y-3">
-          {Object.entries(groupedStandards()).map(([group, standards]) => (
-            <div key={group}>
-              <p className="mb-1.5 text-[11px] font-semibold text-slate-400">{group}</p>
-              <div className="flex flex-wrap gap-1.5">
+        </label>
+        <div className="relative flex-1 min-w-[220px]">
+          <select
+            id="std-select"
+            value={standard.id}
+            onChange={(e) => {
+              const s = PHOTO_STANDARDS.find((x) => x.id === e.target.value);
+              if (s) handleStandardChange(s);
+            }}
+            className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-2 pl-3 pr-8 text-sm font-medium text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+          >
+            {Object.entries(groupedStandards()).map(([group, standards]) => (
+              <optgroup key={group} label={group}>
                 {standards.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => handleStandardChange(s)}
-                    title={s.notes}
-                    className={`flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition
-                      ${standard.id === s.id
-                        ? "border-indigo-600 bg-indigo-800 text-white"
-                        : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-50"}`}
-                  >
-                    <span>{s.flag}</span>
-                    <span>{s.label}</span>
-                    <span className="opacity-60">{s.widthMm}×{s.heightMm}</span>
-                  </button>
+                  <option key={s.id} value={s.id}>
+                    {s.flag} {s.label} — {s.widthMm}×{s.heightMm} mm ({s.widthPx}×{s.heightPx} px)
+                  </option>
                 ))}
-              </div>
-            </div>
-          ))}
+              </optgroup>
+            ))}
+          </select>
+          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400">▾</span>
+        </div>
+        {/* Selected standard meta */}
+        <div className="flex items-center gap-2 text-xs text-slate-500 whitespace-nowrap">
+          <span className="text-base">{standard.flag}</span>
+          <span className="font-medium text-slate-700">{standard.widthMm}×{standard.heightMm} mm</span>
+          <span>·</span>
+          <span>{standard.widthPx}×{standard.heightPx} px</span>
+          {standard.notes && (
+            <span title={standard.notes} className="cursor-help text-slate-400">ⓘ</span>
+          )}
         </div>
       </div>
 

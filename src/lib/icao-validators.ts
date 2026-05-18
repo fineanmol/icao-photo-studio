@@ -115,72 +115,107 @@ function lightingAsymmetry(data: Uint8ClampedArray, w: number, h: number): numbe
 
 /* ── main validator ────────────────────────────────────────────────── */
 
+/** Minimal standard config passed to validateICAO for per-standard checks. */
+export interface ValidatorStandardConfig {
+  widthPx: number;
+  heightPx: number;
+  faceRatioMin: number;
+  faceRatioMax: number;
+  label: string;
+  bgColorHex: string; // currently selected bg colour
+}
+
 export function validateICAO(
   canvas: HTMLCanvasElement,
   face: FaceAnalysis | null,
   /** Face height in OUTPUT pixels (face.height × output_scale) */
   faceOutputHeight?: number,
   bgRemoved = false,
+  std?: ValidatorStandardConfig,
 ): ValidationItem[] {
   const w = canvas.width;
   const h = canvas.height;
   const ctx = getCanvas2D(canvas, { willReadFrequently: true });
   const data = ctx.getImageData(0, 0, w, h).data;
 
+  // Use standard's values when provided, fall back to ICAO defaults
+  const targetW      = std?.widthPx      ?? ICAO_WIDTH;
+  const targetH      = std?.heightPx     ?? ICAO_HEIGHT;
+  const faceRatioMin = std?.faceRatioMin ?? FACE_RATIO_MIN;
+  const faceRatioMax = std?.faceRatioMax ?? FACE_RATIO_MAX;
+  const stdLabel     = std?.label        ?? "ICAO";
+  const bgColorHex   = std?.bgColorHex   ?? "#ffffff";
+
   const items: ValidationItem[] = [];
 
   /* 1. Dimensions ─────────────────────────────────────────────────── */
-  const dimsOk = w === ICAO_WIDTH && h === ICAO_HEIGHT;
+  const dimsOk = w === targetW && h === targetH;
   items.push({
     id: "dimensions",
-    label: "630 × 810 pixels",
+    label: `${targetW} × ${targetH} pixels`,
     status: dimsOk ? "pass" : "fail",
     message: dimsOk
-      ? "Output dimensions match ICAO requirement."
-      : `Current size is ${w}×${h}px — must be 630×810.`,
+      ? `Output dimensions match ${stdLabel} requirement.`
+      : `Current size is ${w}×${h}px — must be ${targetW}×${targetH}.`,
   });
 
-  /* 2. White background ───────────────────────────────────────────── */
+  /* 2. Background ─────────────────────────────────────────────────── */
   if (bgRemoved) {
     items.push({
       id: "background",
-      label: "White background",
+      label: "Background",
       status: "pass",
-      message: "AI background removed and replaced with pure white ✓",
+      message: `AI background removed and replaced ✓`,
     });
   } else {
-    const bgPct = backgroundWhitePercent(data, w, h);
-    const bgStatus = bgPct >= 95 ? "pass" : bgPct >= 75 ? "warn" : "fail";
-    items.push({
-      id: "background",
-      label: "White background",
-      status: bgStatus,
-      message:
-        bgStatus === "pass"
-          ? "Border region is near pure white."
-          : bgPct >= 75
-            ? "Background looks light but may not be pure white. Use '✨ Remove Background' for best results."
-            : "Background is not white. Use the '✨ Remove Background' button or retake with a plain white backdrop.",
-    });
+    // Check against the target bg colour — if it's near-white we use the existing checker
+    const isWhiteBg = bgColorHex === "#ffffff" || bgColorHex === "#f5f1eb";
+    if (isWhiteBg) {
+      const bgPct = backgroundWhitePercent(data, w, h);
+      const bgStatus = bgPct >= 95 ? "pass" : bgPct >= 75 ? "warn" : "fail";
+      items.push({
+        id: "background",
+        label: "White background",
+        status: bgStatus,
+        message:
+          bgStatus === "pass"
+            ? "Border region is near pure white."
+            : bgPct >= 75
+              ? "Background looks light but may not be pure white. Use '✨ Remove Background' for best results."
+              : "Background is not white. Use the '✨ Remove Background' button or retake with a plain white backdrop.",
+      });
+    } else {
+      // Non-white target — skip the white check
+      items.push({
+        id: "background",
+        label: "Background",
+        status: "manual",
+        message: `Ensure background matches ${stdLabel} requirements. Use '✨ Remove Background' and select the correct colour.`,
+      });
+    }
   }
 
   /* 3. Face ratio ─────────────────────────────────────────────────── */
   if (faceOutputHeight && faceOutputHeight > 0) {
-    const ratio = faceOutputHeight / ICAO_HEIGHT;
-    const inRange = ratio >= FACE_RATIO_MIN && ratio <= FACE_RATIO_MAX;
-    const near = ratio >= 0.72 && ratio <= 0.92;
+    const ratio    = faceOutputHeight / targetH;
+    const inRange  = ratio >= faceRatioMin && ratio <= faceRatioMax;
+    const nearLo   = faceRatioMin - 0.08;
+    const nearHi   = faceRatioMax + 0.08;
+    const near     = ratio >= nearLo && ratio <= nearHi;
+    const pctLo    = Math.round(faceRatioMin * 100);
+    const pctHi    = Math.round(faceRatioMax * 100);
     items.push({
       id: "face-ratio",
-      label: "Face fills 80–85% of frame",
+      label: `Face fills ${pctLo}–${pctHi}% of frame`,
       status: inRange ? "pass" : near ? "warn" : "fail",
       message: inRange
-        ? `Face fills ~${Math.round(ratio * 100)}% of frame height — within ICAO range.`
-        : `Face fills ~${Math.round(ratio * 100)}%. Adjust the face scale slider to reach 80–85%.`,
+        ? `Face fills ~${Math.round(ratio * 100)}% of frame height — within ${stdLabel} range.`
+        : `Face fills ~${Math.round(ratio * 100)}%. Adjust the face scale slider to reach ${pctLo}–${pctHi}%.`,
     });
   } else {
     items.push({
       id: "face-ratio",
-      label: "Face fills 80–85% of frame",
+      label: `Face fills ${Math.round(faceRatioMin * 100)}–${Math.round(faceRatioMax * 100)}% of frame`,
       status: face ? "warn" : "fail",
       message: face
         ? "Face detected — verify framing looks correct in the preview."
