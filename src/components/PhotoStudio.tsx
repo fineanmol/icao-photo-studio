@@ -72,7 +72,8 @@ export default function PhotoStudio() {
   const [processing, setProcessing] = useState(false);
   const [loadingImage, setLoadingImage] = useState(false);
   const [convertNote, setConvertNote] = useState<string | null>(null);
-  const [paid, setPaid] = useState(false);
+  // In development, start as paid so every flow is testable without Razorpay
+  const [paid, setPaid] = useState(IS_DEV);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [watermarkOn, setWatermarkOn] = useState(true);
@@ -112,7 +113,7 @@ export default function PhotoStudio() {
 
   // ── payment check ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (localStorage.getItem(STORAGE_KEY) === "1" || DEV_DOWNLOAD) setPaid(true);
+    if (IS_DEV || localStorage.getItem(STORAGE_KEY) === "1") setPaid(true);
     if (searchParams.get("testWatermark") === "1") {
       setShowWatermarkTools(true);
       setWatermarkOn(true);
@@ -288,9 +289,8 @@ export default function PhotoStudio() {
 
   const startCheckout = async () => {
     if (!finalCanvas) return;
-    if (DEV_DOWNLOAD) {
+    if (IS_DEV) {
       setPaid(true);
-      localStorage.setItem(STORAGE_KEY, "1");
       return;
     }
     setCheckoutLoading(true);
@@ -382,7 +382,7 @@ export default function PhotoStudio() {
                 const f = e.dataTransfer.files[0];
                 if (f) void onFile(f);
               }}
-              className="flex min-h-[420px] w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-sky-200 bg-gradient-to-b from-sky-50/80 to-white p-10 text-center transition hover:border-sky-400 hover:bg-sky-50/50"
+              className="flex min-h-[420px] w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-indigo-200 bg-gradient-to-b from-indigo-50/60 to-white p-10 text-center transition hover:border-indigo-400 hover:bg-indigo-50/50"
             >
               <span className="text-6xl">📷</span>
               <span className="mt-5 text-xl font-semibold text-slate-800">
@@ -400,12 +400,9 @@ export default function PhotoStudio() {
               {/* Header */}
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium text-slate-500">
-                    {ICAO_WIDTH}×{ICAO_HEIGHT} px
-                  </span>
                   {showWatermark && (
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-                      Watermarked
+                      Watermarked preview
                     </span>
                   )}
                   {bgRemoved && (
@@ -413,51 +410,80 @@ export default function PhotoStudio() {
                       BG Removed ✓
                     </span>
                   )}
+                  {convertNote && (
+                    <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700">
+                      {convertNote}
+                    </span>
+                  )}
                 </div>
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
-                  className="text-sm font-medium text-sky-700 hover:text-sky-900"
+                  className="text-sm font-medium text-indigo-700 hover:text-indigo-900"
                 >
-                  Change photo
+                  ↩ Change photo
                 </button>
               </div>
 
-              {convertNote && (
-                <p className="mb-2 text-xs text-sky-700">{convertNote}</p>
-              )}
+              {/* Before / After side-by-side */}
+              <div className="grid grid-cols-2 gap-3">
+                {/* LEFT — Original */}
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-center text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Original
+                  </p>
+                  <div
+                    className="relative overflow-hidden rounded-lg border border-slate-100 bg-slate-50"
+                    style={{ aspectRatio: `${ICAO_WIDTH}/${ICAO_HEIGHT}` }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={sourceUrl}
+                      alt="Original photo"
+                      className="h-full w-full object-contain"
+                    />
+                  </div>
+                </div>
 
-              {/* Canvas */}
-              <div className="relative mx-auto max-w-[315px]">
-                <canvas
-                  ref={previewRef}
-                  width={ICAO_WIDTH}
-                  height={ICAO_HEIGHT}
-                  className="h-auto w-full rounded-lg border border-slate-100 shadow-inner"
-                  style={{ aspectRatio: `${ICAO_WIDTH}/${ICAO_HEIGHT}` }}
-                />
-                {busy && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-white/85">
-                    <svg
-                      className="h-9 w-9 animate-spin text-sky-600"
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                    </svg>
-                    <span className="text-sm font-medium text-slate-700">{overlayLabel}</span>
-                    {bgRemoving && bgProgress && (
-                      <div className="w-44 overflow-hidden rounded-full bg-slate-200">
-                        <div
-                          className="h-1.5 rounded-full bg-sky-500 transition-all duration-300"
-                          style={{ width: `${bgProgress.pct}%` }}
-                        />
+                {/* RIGHT — Processed ICAO */}
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-center text-xs font-semibold uppercase tracking-wide text-indigo-600">
+                    ICAO Ready · {ICAO_WIDTH}×{ICAO_HEIGHT}
+                  </p>
+                  <div
+                    className="relative overflow-hidden rounded-lg border border-indigo-100"
+                    style={{ aspectRatio: `${ICAO_WIDTH}/${ICAO_HEIGHT}` }}
+                  >
+                    <canvas
+                      ref={previewRef}
+                      width={ICAO_WIDTH}
+                      height={ICAO_HEIGHT}
+                      className="h-full w-full"
+                    />
+                    {busy && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-lg bg-white/85">
+                        <svg
+                          className="h-8 w-8 animate-spin text-indigo-600"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                        </svg>
+                        <span className="text-xs font-medium text-slate-600">{overlayLabel}</span>
+                        {bgRemoving && bgProgress && (
+                          <div className="w-32 overflow-hidden rounded-full bg-slate-200">
+                            <div
+                              className="h-1.5 rounded-full bg-indigo-500 transition-all duration-300"
+                              style={{ width: `${bgProgress.pct}%` }}
+                            />
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-                )}
+                </div>
               </div>
 
               {/* BG removal row */}
@@ -467,7 +493,7 @@ export default function PhotoStudio() {
                     type="button"
                     onClick={() => void handleRemoveBg()}
                     disabled={bgRemoving || processing}
-                    className="flex items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-100 disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
                   >
                     <span>✨</span> Remove Background
                   </button>
@@ -490,7 +516,7 @@ export default function PhotoStudio() {
                 </button>
                 <a
                   href="/bg-remover"
-                  className="ml-auto rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-100"
+                  className="ml-auto rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
                 >
                   Dedicated BG Remover →
                 </a>
@@ -655,7 +681,7 @@ export default function PhotoStudio() {
           </div>
 
           {/* BG removal info card */}
-          <div className="rounded-2xl border border-violet-200 bg-violet-50/50 p-4">
+          <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-4">
             <div className="flex items-start gap-2">
               <span className="text-xl">✨</span>
               <div>
@@ -681,7 +707,7 @@ export default function PhotoStudio() {
               <button
                 type="button"
                 onClick={() => setShowWatermarkTools((v) => !v)}
-                className="text-xs font-medium text-sky-700"
+                className="text-xs font-medium text-indigo-700"
               >
                 {showWatermarkTools ? "Hide" : "Show"}
               </button>
@@ -726,7 +752,7 @@ export default function PhotoStudio() {
             <ul className="mt-3 space-y-2 text-xs text-slate-700">
               {GUIDELINES.map((g) => (
                 <li key={g.id} className="flex gap-2">
-                  <span className="shrink-0 text-sky-500">•</span>
+                  <span className="shrink-0 text-indigo-400">•</span>
                   <span><strong>{g.label}</strong> — {g.detail}</span>
                 </li>
               ))}
