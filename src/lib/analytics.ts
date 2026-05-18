@@ -17,11 +17,11 @@ function gtag(...args: unknown[]) {
   window.gtag?.(...args);
 }
 
+const GA_ID = "G-7WPJFRP44Q";
+
 /** Call once per page – GA script handles this automatically, but useful for SPAs. */
 export function trackPageView(url: string) {
-  const id = process.env.NEXT_PUBLIC_GA_ID;
-  if (!id) return;
-  gtag("config", id, { page_path: url });
+  gtag("config", GA_ID, { page_path: url });
 }
 
 /** User uploaded a photo – top of funnel. */

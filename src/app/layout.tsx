@@ -20,8 +20,6 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const gaId = process.env.NEXT_PUBLIC_GA_ID;
-
   return (
     <html lang="en" className={dmSans.variable}>
       <head>
@@ -29,18 +27,14 @@ export default function RootLayout({
         <Script id="gtm-head" strategy="beforeInteractive">
           {`(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-PVKLCHK2');`}
         </Script>
-        {/* Optional: direct GA4 via gtag if NEXT_PUBLIC_GA_ID is set */}
-        {gaId && (
-          <>
-            <Script
-              src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
-              strategy="afterInteractive"
-            />
-            <Script id="ga-init" strategy="afterInteractive">
-              {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${gaId}');`}
-            </Script>
-          </>
-        )}
+        {/* Google Analytics 4 — G-7WPJFRP44Q */}
+        <Script
+          src="https://www.googletagmanager.com/gtag/js?id=G-7WPJFRP44Q"
+          strategy="afterInteractive"
+        />
+        <Script id="ga4-init" strategy="afterInteractive">
+          {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-7WPJFRP44Q');`}
+        </Script>
       </head>
       <body className="min-h-screen font-sans antialiased text-slate-900">
         {/* Google Tag Manager (noscript) */}
