@@ -77,6 +77,7 @@ export default function PhotoStudio() {
   const [error, setError] = useState<string | null>(null);
   const [watermarkOn, setWatermarkOn] = useState(true);
   const [showWatermarkTools, setShowWatermarkTools] = useState(DEV_DOWNLOAD);
+  const [originalFileName, setOriginalFileName] = useState<string>("photo");
   const [bgRemoving, setBgRemoving] = useState(false);
   const [bgProgress, setBgProgress] = useState<BgRemovalProgress | null>(null);
   const [bgRemoved, setBgRemoved] = useState(false);
@@ -203,6 +204,8 @@ export default function PhotoStudio() {
       const prepared = await prepareImageFile(file);
       revokeSourceRef.current = prepared.revoke;
       setSourceUrl(prepared.url);
+      // Strip extension for use in download filenames
+      setOriginalFileName(file.name.replace(/\.[^/.]+$/, "") || "photo");
       trackPhotoUploaded(prepared.convertedFrom ?? (file.type || "unknown"));
       if (prepared.convertedFrom) {
         setConvertNote(`Converted from ${prepared.convertedFrom} in your browser.`);
@@ -278,7 +281,7 @@ export default function PhotoStudio() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `icao-passport-photo-${ICAO_WIDTH}x${ICAO_HEIGHT}.jpg`;
+    a.download = `${originalFileName}-icao-${ICAO_WIDTH}x${ICAO_HEIGHT}.jpg`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -507,9 +510,9 @@ export default function PhotoStudio() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => { if (finalCanvas) printPassportSheet(finalCanvas); }}
+                      onClick={() => { if (finalCanvas) printPassportSheet(finalCanvas, originalFileName); }}
                       disabled={!finalCanvas}
-                      title="Opens a print-ready A4 sheet with 20 photos and crop marks"
+                      title="Opens a print-ready A4 sheet with crop marks"
                       className="flex-1 rounded-xl border-2 border-indigo-800 bg-white px-5 py-3 font-semibold text-indigo-800 shadow hover:bg-indigo-50 disabled:opacity-50"
                     >
                       🖨 Print / PDF
