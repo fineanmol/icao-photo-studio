@@ -4,8 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const links = [
-  { href: "/studio", label: "Passport Studio", icon: "🪪" },
-  { href: "/bg-remover", label: "Background Remover", icon: "✨" },
+  { href: "/studio",     label: "Passport Studio",    icon: "🪪" },
+  { href: "/bg-remover", label: "Background Remover",  icon: "✂️" },
+  { href: "/enhance",    label: "Portrait Enhancer",   icon: "🪄" },
 ];
 
 export default function SiteNav() {

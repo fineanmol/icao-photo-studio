@@ -57,7 +57,7 @@ function loadScript(): Promise<void> {
 }
 
 export type OpenCheckoutOptions = {
-  product: "icao_photo" | "bg_removal";
+  product: "icao_photo" | "bg_removal" | "portrait_enhance";
   /** Called with the verified result — server signature check already done. */
   onSuccess: () => void;
   onDismiss?: () => void;

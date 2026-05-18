@@ -55,7 +55,7 @@ const FAQ = [
   },
   {
     q: "What does 'lifetime access' mean?",
-    a: "Pay ₹29 once and you can use both the ICAO Studio and Background Remover unlimited times, forever, with no watermarks. Access is stored in your browser — no account needed.",
+    a: "Pay ₹29 once and you can use the ICAO Studio, Background Remover, and Portrait Enhancer unlimited times, forever, with no watermarks. Access is stored in your browser — no account needed.",
   },
   {
     q: "What if I clear my browser or switch devices?",
@@ -120,6 +120,12 @@ export default function LandingPage() {
               className="rounded-2xl border-2 border-amber-400 bg-white px-8 py-3.5 text-base font-semibold text-amber-700 shadow-sm transition hover:bg-amber-50"
             >
               Remove background
+            </Link>
+            <Link
+              href="/enhance"
+              className="rounded-2xl border-2 border-slate-200 bg-white px-8 py-3.5 text-base font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50"
+            >
+              🪄 Portrait enhancer
             </Link>
           </div>
 
@@ -268,6 +274,8 @@ export default function LandingPage() {
         <div className="mx-auto max-w-5xl flex flex-wrap justify-center gap-6 mb-6">
           <Link href="/studio" className="hover:text-slate-600">Passport Studio</Link>
           <Link href="/bg-remover" className="hover:text-slate-600">Background Remover</Link>
+          <span>·</span>
+          <Link href="/enhance" className="hover:text-slate-600">Portrait Enhancer</Link>
         </div>
         <p>
           AI compliance checks are indicative. Final acceptance is at the issuing authority&apos;s discretion.
