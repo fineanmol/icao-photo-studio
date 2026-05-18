@@ -350,3 +350,39 @@ export function canvasToBlob(
     );
   });
 }
+
+/**
+ * Binary-search the highest JPEG quality that keeps the blob under `maxBytes`.
+ * Returns the blob and the quality that was used.
+ * Falls back to quality=0.1 if even that exceeds the limit.
+ */
+export async function canvasToBlobUnder(
+  canvas: HTMLCanvasElement,
+  maxBytes: number,
+): Promise<{ blob: Blob; quality: number; sizeKB: number }> {
+  let lo = 0.05;
+  let hi = 0.95;
+  let best: Blob | null = null;
+  let bestQ = lo;
+
+  // ~8 iterations → accuracy to within ~0.4% quality
+  for (let i = 0; i < 8; i++) {
+    const mid = (lo + hi) / 2;
+    const blob = await canvasToBlob(canvas, mid);
+    if (blob.size <= maxBytes) {
+      best = blob;
+      bestQ = mid;
+      lo = mid; // quality fits — try higher
+    } else {
+      hi = mid; // too large — lower quality
+    }
+  }
+
+  if (!best) {
+    // Even 0.1 is over the limit — just return the smallest we can make
+    best = await canvasToBlob(canvas, 0.1);
+    bestQ = 0.1;
+  }
+
+  return { blob: best, quality: bestQ, sizeKB: Math.round(best.size / 1024) };
+}

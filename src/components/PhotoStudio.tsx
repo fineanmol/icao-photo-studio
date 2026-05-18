@@ -12,6 +12,7 @@ import { detectFace, loadFaceModels } from "@/lib/face-detection";
 import type { FaceAnalysis } from "@/lib/face-detection";
 import {
   canvasToBlob,
+  canvasToBlobUnder,
   computeCrop,
   defaultSettings,
   processToICAO,
@@ -66,6 +67,8 @@ export default function PhotoStudio() {
 
   // ── state ────────────────────────────────────────────────────────────────
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  /** Frozen on file-load; never overwritten by BG removal — used for the "Original" panel. */
+  const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [settings, setSettings] = useState<ICAOSettings>(defaultSettings);
   const [finalCanvas, setFinalCanvas] = useState<HTMLCanvasElement | null>(null);
   const [validations, setValidations] = useState<ValidationItem[]>([]);
@@ -79,6 +82,8 @@ export default function PhotoStudio() {
   const [watermarkOn, setWatermarkOn] = useState(true);
   const [showWatermarkTools, setShowWatermarkTools] = useState(DEV_DOWNLOAD);
   const [originalFileName, setOriginalFileName] = useState<string>("photo");
+  /** "print" = full quality (~0.95) | "portal" = binary-search to ≤200 KB */
+  const [exportMode, setExportMode] = useState<"print" | "portal">("print");
   const [bgRemoving, setBgRemoving] = useState(false);
   const [bgProgress, setBgProgress] = useState<BgRemovalProgress | null>(null);
   const [bgRemoved, setBgRemoved] = useState(false);
@@ -196,6 +201,7 @@ export default function PhotoStudio() {
     setValidations([]);
     setBgRemoved(false);
     setBgProgress(null);
+    setOriginalUrl(null); // will be set once prepared.url is ready
     try {
       revokeSourceRef.current?.();
       revokeSourceRef.current = null;
@@ -205,6 +211,7 @@ export default function PhotoStudio() {
       const prepared = await prepareImageFile(file);
       revokeSourceRef.current = prepared.revoke;
       setSourceUrl(prepared.url);
+      setOriginalUrl(prepared.url);   // frozen — never changes after this
       // Strip extension for use in download filenames
       setOriginalFileName(file.name.replace(/\.[^/.]+$/, "") || "photo");
       trackPhotoUploaded(prepared.convertedFrom ?? (file.type || "unknown"));
@@ -275,14 +282,24 @@ export default function PhotoStudio() {
   };
 
   // ── download / payment ────────────────────────────────────────────────────
-  const download = async () => {
+  const download = async (mode: "print" | "portal" = exportMode) => {
     if (!finalCanvas) return;
     trackDownload("icao_photo");
-    const blob = await canvasToBlob(finalCanvas);
+
+    let blob: Blob;
+    let suffix = "";
+    if (mode === "portal") {
+      const result = await canvasToBlobUnder(finalCanvas, 200 * 1024);
+      blob = result.blob;
+      suffix = `-portal-${result.sizeKB}kb`;
+    } else {
+      blob = await canvasToBlob(finalCanvas, 0.95);
+    }
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${originalFileName}-icao-${ICAO_WIDTH}x${ICAO_HEIGHT}.jpg`;
+    a.download = `${originalFileName}-icao-${ICAO_WIDTH}x${ICAO_HEIGHT}${suffix}.jpg`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -438,7 +455,7 @@ export default function PhotoStudio() {
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={sourceUrl}
+                      src={originalUrl ?? sourceUrl ?? ""}
                       alt="Original photo"
                       className="h-full w-full object-contain"
                     />
@@ -522,10 +539,35 @@ export default function PhotoStudio() {
                 </a>
               </div>
 
-              {/* Download / pay row */}
-              <div className="mt-2 flex flex-wrap gap-3">
-                {paid ? (
-                  <>
+              {/* Export size toggle + download / pay row */}
+              {paid ? (
+                <div className="mt-3 space-y-2.5">
+                  {/* Size mode toggle */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500">Export&nbsp;as:</span>
+                    <div className="flex overflow-hidden rounded-lg border border-slate-200 text-xs font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setExportMode("print")}
+                        className={`px-3 py-1.5 transition ${exportMode === "print" ? "bg-indigo-800 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+                      >
+                        Print quality
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExportMode("portal")}
+                        className={`px-3 py-1.5 transition border-l border-slate-200 ${exportMode === "portal" ? "bg-indigo-800 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+                      >
+                        Portal &lt;200 KB
+                      </button>
+                    </div>
+                    <span className="ml-auto text-[11px] text-slate-400">
+                      {exportMode === "portal" ? "Auto-optimised for govt portals" : "Best for printing"}
+                    </span>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex flex-wrap gap-3">
                     <button
                       type="button"
                       onClick={() => void download()}
@@ -543,27 +585,22 @@ export default function PhotoStudio() {
                     >
                       🖨 Print / PDF
                     </button>
-                  </>
-                ) : (
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 space-y-2">
                   <button
                     type="button"
                     onClick={() => void startCheckout()}
                     disabled={!finalCanvas || checkoutLoading}
-                    className="flex-1 rounded-xl bg-indigo-800 px-5 py-3 font-semibold text-white shadow hover:bg-indigo-900 disabled:opacity-50"
+                    className="w-full rounded-xl bg-indigo-800 px-5 py-3 font-semibold text-white shadow hover:bg-indigo-900 disabled:opacity-50"
                   >
-                    {checkoutLoading
-                      ? "Redirecting…"
-                      : DEV_DOWNLOAD
-                        ? "Unlock forever (dev)"
-                        : `Unlock forever — ${PRICE_DISPLAY}`}
+                    {checkoutLoading ? "Redirecting…" : `Unlock forever — ${PRICE_DISPLAY}`}
                   </button>
-                )}
-              </div>
-              {/* Print layout hint for unpaid users */}
-              {!paid && finalCanvas && (
-                <p className="mt-2 text-center text-xs text-slate-400">
-                  Unlock to download JPEG or print an A4 sheet of 20 photos with crop marks
-                </p>
+                  <p className="text-center text-xs text-slate-400">
+                    Download JPEG (print quality or &lt;200 KB) · Print A4 sheet · Lifetime access
+                  </p>
+                </div>
               )}
             </div>
           )}
