@@ -16,7 +16,7 @@ export default function SiteNav() {
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2 text-slate-900">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-sky-400 to-violet-500 text-white text-sm font-bold shadow-sm">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-800 text-amber-400 text-sm font-bold shadow-sm">
             ID
           </span>
           <span className="hidden font-bold tracking-tight sm:block">ICAO Photo Studio</span>

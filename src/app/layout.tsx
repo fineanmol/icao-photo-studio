@@ -1,12 +1,23 @@
 import type { Metadata } from "next";
-import { DM_Sans } from "next/font/google";
+import { Crimson_Pro, Inter } from "next/font/google";
 import Script from "next/script";
 import SiteNav from "@/components/SiteNav";
 import "./globals.css";
 
-const dmSans = DM_Sans({
+/** Inter — clean, modern sans-serif for all UI elements */
+const inter = Inter({
   subsets: ["latin"],
   variable: "--font-sans",
+  display: "swap",
+});
+
+/** Crimson Pro — elegant serif for landing page headlines */
+const crimsonPro = Crimson_Pro({
+  subsets: ["latin"],
+  variable: "--font-display",
+  weight: ["400", "600", "700"],
+  style: ["normal", "italic"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -21,7 +32,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={dmSans.variable}>
+    <html lang="en" className={`${inter.variable} ${crimsonPro.variable}`}>
       <head>
         {/* Google Tag Manager */}
         <Script id="gtm-head" strategy="beforeInteractive">

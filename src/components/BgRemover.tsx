@@ -316,10 +316,10 @@ export default function BgRemover() {
       <div
         className={`relative flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed p-10 transition-colors ${
           dragging
-            ? "border-sky-400 bg-sky-50"
+            ? "border-indigo-400 bg-indigo-50"
             : sourceUrl
               ? "border-emerald-300 bg-emerald-50/50"
-              : "border-slate-200 bg-slate-50 hover:border-sky-300 hover:bg-sky-50/50"
+              : "border-slate-200 bg-slate-50 hover:border-indigo-300 hover:bg-indigo-50/50"
         }`}
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
@@ -357,7 +357,7 @@ export default function BgRemover() {
           </div>
         ) : (
           <>
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-sky-100">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-100">
               <svg className="h-7 w-7 text-sky-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
               </svg>
@@ -380,7 +380,7 @@ export default function BgRemover() {
               key={key}
               className={`flex cursor-pointer flex-col gap-1 rounded-xl border-2 p-3.5 transition-colors ${
                 model === key
-                  ? "border-sky-400 bg-sky-50"
+                  ? "border-indigo-400 bg-indigo-50"
                   : "border-slate-200 hover:border-slate-300"
               }`}
             >
@@ -395,12 +395,12 @@ export default function BgRemover() {
               <span className="flex items-center gap-2">
                 <span
                   className={`h-2.5 w-2.5 rounded-full border-2 ${
-                    model === key ? "border-sky-500 bg-sky-500" : "border-slate-300 bg-white"
+                    model === key ? "border-indigo-700 bg-indigo-700" : "border-slate-300 bg-white"
                   }`}
                 />
                 <span className="text-sm font-semibold text-slate-800">{BG_MODEL_INFO[key].label}</span>
                 {key === "balanced" && (
-                  <span className="ml-auto rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-600">
+                  <span className="ml-auto rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
                     Rec.
                   </span>
                 )}
@@ -422,7 +422,7 @@ export default function BgRemover() {
       <button
         disabled={!sourceUrl || processing}
         onClick={handleRemove}
-        className="w-full rounded-xl bg-gradient-to-r from-sky-500 to-violet-500 py-3.5 text-sm font-bold text-white shadow-md transition hover:from-sky-600 hover:to-violet-600 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full rounded-xl bg-indigo-800 py-3.5 text-sm font-bold text-white shadow-md transition hover:bg-indigo-900 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {processing ? (
           <span className="flex items-center justify-center gap-2">
@@ -507,7 +507,7 @@ export default function BgRemover() {
               </button>
             </div>
           ) : (
-              <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-sky-50 p-5">
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
               <div className="flex items-start gap-3">
                 <span className="text-2xl">🔒</span>
                 <div className="flex-1">
@@ -519,7 +519,7 @@ export default function BgRemover() {
                     <button
                       onClick={() => void startCheckout()}
                       disabled={checkoutLoading}
-                      className="rounded-xl bg-gradient-to-r from-violet-600 to-sky-600 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:from-violet-700 hover:to-sky-700 disabled:opacity-60"
+                      className="rounded-xl bg-indigo-800 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-indigo-900 disabled:opacity-60"
                     >
                       {checkoutLoading ? "Opening payment…" : `Unlock forever — ${BG_REMOVAL_PRICE_DISPLAY}`}
                     </button>

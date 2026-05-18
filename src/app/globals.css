@@ -1,18 +1,44 @@
 @import "tailwindcss";
 
 @theme inline {
-  --font-sans: var(--font-sans), system-ui, sans-serif;
+  /* ── Typography ──────────────────────────────────────── */
+  --font-sans:    var(--font-sans),    system-ui, sans-serif;
+  --font-display: var(--font-display), Georgia,   serif;
+
+  /* ── Brand palette ───────────────────────────────────── */
+  /* Navy — Indian passport blue / HDFC-inspired trust colour */
+  --color-navy-50:  #eef2ff;
+  --color-navy-100: #e0e7ff;
+  --color-navy-200: #c7d2fe;
+  --color-navy-400: #6366f1;
+  --color-navy-600: #1e3a8a;
+  --color-navy-700: #1e3177;
+  --color-navy-800: #172554;
+  --color-navy-900: #0f1f4a;
+
+  /* Saffron — Indian flag amber, warm CTA colour */
+  --color-saffron-300: #fcd34d;
+  --color-saffron-400: #fbbf24;
+  --color-saffron-500: #f59e0b;
+  --color-saffron-600: #d97706;
+  --color-saffron-700: #b45309;
 }
 
 body {
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
+/* Serif display utility — apply to landing-page headlines */
+.font-display {
+  font-family: var(--font-display);
+}
+
+/* Slider thumb styling */
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   height: 16px;
   width: 16px;
   border-radius: 50%;
-  background: #0284c7;
+  background: #1e3a8a;
   cursor: pointer;
 }

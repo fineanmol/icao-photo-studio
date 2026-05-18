@@ -71,7 +71,7 @@ const FAQ = [
 function StatBadge({ value, label }: { value: string; label: string }) {
   return (
     <div className="flex flex-col items-center gap-0.5">
-      <span className="text-2xl font-bold text-slate-900">{value}</span>
+      <span className="font-display text-2xl font-bold text-indigo-800">{value}</span>
       <span className="text-xs text-slate-500">{label}</span>
     </div>
   );
@@ -82,21 +82,21 @@ export default function LandingPage() {
     <div className="min-h-screen bg-white">
 
       {/* ── HERO ─────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-sky-50 via-white to-violet-50 px-4 pb-20 pt-16 text-center sm:px-6">
+      <section className="relative overflow-hidden bg-gradient-to-br from-indigo-50 via-white to-amber-50 px-4 pb-20 pt-16 text-center sm:px-6">
         {/* Background decoration */}
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute -top-40 left-1/2 h-[600px] w-[600px] -translate-x-1/2 rounded-full bg-sky-100/50 blur-3xl" />
+          <div className="absolute -top-40 left-1/2 h-[600px] w-[600px] -translate-x-1/2 rounded-full bg-indigo-100/50 blur-3xl" />
         </div>
 
         <div className="relative mx-auto max-w-3xl">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white px-4 py-1.5 text-sm font-medium text-sky-700 shadow-sm">
-            <span className="h-2 w-2 rounded-full bg-emerald-400" />
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white px-4 py-1.5 text-sm font-medium text-indigo-700 shadow-sm">
+            <span className="h-2 w-2 rounded-full bg-amber-400" />
             AI-powered · 100% browser · No upload
           </div>
 
-          <h1 className="mt-2 text-4xl font-extrabold tracking-tight text-slate-900 sm:text-5xl lg:text-6xl">
+          <h1 className="font-display mt-2 text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl lg:text-6xl">
             Passport Photo,{" "}
-            <span className="bg-gradient-to-r from-sky-500 to-violet-600 bg-clip-text text-transparent">
+            <span className="italic text-indigo-700">
               ICAO-Ready
             </span>{" "}
             in Seconds
@@ -111,13 +111,13 @@ export default function LandingPage() {
           <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
             <Link
               href="/studio"
-              className="rounded-2xl bg-gradient-to-r from-sky-500 to-violet-600 px-8 py-3.5 text-base font-bold text-white shadow-lg shadow-sky-200 transition hover:from-sky-600 hover:to-violet-700 hover:shadow-sky-300"
+              className="rounded-2xl bg-indigo-800 px-8 py-3.5 text-base font-bold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-900"
             >
               Convert my photo →
             </Link>
             <Link
               href="/bg-remover"
-              className="rounded-2xl border border-slate-200 bg-white px-8 py-3.5 text-base font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+              className="rounded-2xl border-2 border-amber-400 bg-white px-8 py-3.5 text-base font-semibold text-amber-700 shadow-sm transition hover:bg-amber-50"
             >
               Remove background
             </Link>
@@ -144,7 +144,7 @@ export default function LandingPage() {
       <section className="px-4 py-20 sm:px-6">
         <div className="mx-auto max-w-5xl">
           <div className="mb-12 text-center">
-            <h2 className="text-3xl font-bold text-slate-900">How it works</h2>
+            <h2 className="font-display text-3xl font-bold text-slate-900">How it works</h2>
             <p className="mt-3 text-slate-500">Three steps, under 30 seconds</p>
           </div>
           <div className="grid gap-8 sm:grid-cols-3">
@@ -168,7 +168,7 @@ export default function LandingPage() {
       <section className="bg-slate-50 px-4 py-20 sm:px-6">
         <div className="mx-auto max-w-5xl">
           <div className="mb-12 text-center">
-            <h2 className="text-3xl font-bold text-slate-900">What the AI checks & fixes</h2>
+            <h2 className="font-display text-3xl font-bold text-slate-900">What the AI checks &amp; fixes</h2>
             <p className="mt-3 text-slate-500">
               Most tools just crop. Ours analyses and corrects.
             </p>
@@ -188,12 +188,12 @@ export default function LandingPage() {
       {/* ── PRICING ──────────────────────────────────────────────────── */}
       <section className="px-4 py-20 sm:px-6">
         <div className="mx-auto max-w-lg text-center">
-          <h2 className="text-3xl font-bold text-slate-900">Simple, honest pricing</h2>
+          <h2 className="font-display text-3xl font-bold text-slate-900">Simple, honest pricing</h2>
           <p className="mt-3 text-slate-500">No subscription. No per-download fees. Just ₹29 once.</p>
 
-          <div className="mt-10 rounded-3xl border-2 border-sky-200 bg-gradient-to-b from-sky-50 to-white p-8 shadow-lg shadow-sky-100">
+          <div className="mt-10 rounded-3xl border-2 border-amber-200 bg-gradient-to-b from-amber-50 to-white p-8 shadow-lg shadow-amber-100">
             <div className="flex items-end justify-center gap-2">
-              <span className="text-5xl font-extrabold text-slate-900">₹29</span>
+              <span className="font-display text-5xl font-bold text-indigo-800">₹29</span>
               <span className="mb-1.5 text-lg text-slate-500">/ lifetime</span>
             </div>
             <p className="mt-2 text-sm text-slate-500">One-time payment · No account needed</p>
@@ -209,7 +209,7 @@ export default function LandingPage() {
                 "No watermarks, ever",
               ].map((item) => (
                 <li key={item} className="flex items-start gap-2.5">
-                  <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs text-emerald-700 font-bold">✓</span>
+                  <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs text-amber-700 font-bold">✓</span>
                   {item}
                 </li>
               ))}
@@ -217,7 +217,7 @@ export default function LandingPage() {
 
             <Link
               href="/studio"
-              className="mt-8 block w-full rounded-xl bg-gradient-to-r from-sky-500 to-violet-600 py-3.5 text-center text-sm font-bold text-white shadow-md transition hover:from-sky-600 hover:to-violet-700"
+              className="mt-8 block w-full rounded-xl bg-indigo-800 py-3.5 text-center text-sm font-bold text-white shadow-md transition hover:bg-indigo-900"
             >
               Get lifetime access — ₹29
             </Link>
@@ -231,7 +231,7 @@ export default function LandingPage() {
       {/* ── FAQ ──────────────────────────────────────────────────────── */}
       <section className="bg-slate-50 px-4 py-20 sm:px-6">
         <div className="mx-auto max-w-2xl">
-          <h2 className="mb-10 text-center text-3xl font-bold text-slate-900">
+          <h2 className="font-display mb-10 text-center text-3xl font-bold text-slate-900">
             Frequently asked questions
           </h2>
           <div className="space-y-4">
@@ -247,16 +247,16 @@ export default function LandingPage() {
 
       {/* ── FINAL CTA ────────────────────────────────────────────────── */}
       <section className="px-4 py-20 sm:px-6">
-        <div className="mx-auto max-w-2xl rounded-3xl bg-gradient-to-br from-sky-500 to-violet-600 px-8 py-14 text-center shadow-2xl shadow-sky-200">
-          <h2 className="text-3xl font-bold text-white">
+        <div className="mx-auto max-w-2xl rounded-3xl bg-indigo-800 px-8 py-14 text-center shadow-2xl shadow-indigo-200">
+          <h2 className="font-display text-3xl font-bold text-white">
             Your ICAO photo is 30 seconds away
           </h2>
-          <p className="mt-4 text-sky-100">
+          <p className="mt-4 text-indigo-200">
             Free to try. ₹29 to download. Works on any device, no app needed.
           </p>
           <Link
             href="/studio"
-            className="mt-8 inline-block rounded-2xl bg-white px-10 py-4 text-base font-bold text-sky-600 shadow-lg transition hover:bg-sky-50"
+            className="mt-8 inline-block rounded-2xl bg-amber-400 px-10 py-4 text-base font-bold text-indigo-900 shadow-lg transition hover:bg-amber-300"
           >
             Convert my photo now →
           </Link>

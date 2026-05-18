@@ -385,7 +385,7 @@ export default function PhotoStudio() {
               <span className="mt-2 max-w-md text-slate-500">
                 or click to browse · {SUPPORTED_FORMATS_LABEL}
               </span>
-              <span className="mt-6 rounded-full bg-sky-600 px-6 py-2.5 text-sm font-medium text-white">
+              <span className="mt-6 rounded-full bg-indigo-800 px-6 py-2.5 text-sm font-medium text-white">
                 Upload photo
               </span>
             </button>
@@ -506,7 +506,7 @@ export default function PhotoStudio() {
                     type="button"
                     onClick={() => void startCheckout()}
                     disabled={!finalCanvas || checkoutLoading}
-                    className="flex-1 rounded-xl bg-sky-600 px-5 py-3 font-semibold text-white shadow hover:bg-sky-700 disabled:opacity-50"
+                    className="flex-1 rounded-xl bg-indigo-800 px-5 py-3 font-semibold text-white shadow hover:bg-indigo-900 disabled:opacity-50"
                   >
                     {checkoutLoading
                       ? "Redirecting…"
