@@ -30,6 +30,7 @@ import {
 } from "@/lib/watermark";
 import type { BgRemovalProgress } from "@/lib/bg-removal";
 import { openRazorpayCheckout } from "@/lib/razorpay-client";
+import { trackPhotoUploaded, trackDownload } from "@/lib/analytics";
 
 /** Shared key — paying once unlocks all tools forever across sessions. */
 const STORAGE_KEY = "icao_lifetime_paid";
@@ -199,6 +200,7 @@ export default function PhotoStudio() {
       const prepared = await prepareImageFile(file);
       revokeSourceRef.current = prepared.revoke;
       setSourceUrl(prepared.url);
+      trackPhotoUploaded(prepared.convertedFrom ?? (file.type || "unknown"));
       if (prepared.convertedFrom) {
         setConvertNote(`Converted from ${prepared.convertedFrom} in your browser.`);
       }
@@ -268,6 +270,7 @@ export default function PhotoStudio() {
   // ── download / payment ────────────────────────────────────────────────────
   const download = async () => {
     if (!finalCanvas) return;
+    trackDownload("icao_photo");
     const blob = await canvasToBlob(finalCanvas);
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

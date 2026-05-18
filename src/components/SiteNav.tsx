@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const links = [
-  { href: "/", label: "Passport Studio", icon: "🪪" },
+  { href: "/studio", label: "Passport Studio", icon: "🪪" },
   { href: "/bg-remover", label: "Background Remover", icon: "✨" },
 ];
 

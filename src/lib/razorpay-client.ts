@@ -3,6 +3,12 @@
  * Lazily loads the Razorpay checkout script and opens the payment modal.
  * No page redirect — the modal appears in-place, making UX smoother.
  */
+import { trackBeginCheckout, trackPurchase } from "./analytics";
+
+const PRICE_PAISE: Record<string, number> = {
+  icao_photo: 2900,
+  bg_removal: 2900,
+};
 
 declare global {
   interface Window {
@@ -94,6 +100,9 @@ export async function openRazorpayCheckout(opts: OpenCheckoutOptions): Promise<v
   // Step 2 — load Razorpay JS
   await loadScript();
 
+  // Track checkout intent
+  trackBeginCheckout(product, (PRICE_PAISE[product] ?? 2900) / 100);
+
   // Step 3 — open modal
   const rzp = new window.Razorpay({
     key: orderData.keyId,
@@ -116,6 +125,7 @@ export async function openRazorpayCheckout(opts: OpenCheckoutOptions): Promise<v
         });
         const result = await verifyRes.json() as { paid: boolean; error?: string };
         if (result.paid) {
+          trackPurchase(product, (PRICE_PAISE[product] ?? 2900) / 100);
           onSuccess();
         } else {
           onError?.(result.error ?? "Payment could not be verified. Contact support.");
