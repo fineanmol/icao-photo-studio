@@ -31,6 +31,7 @@ import {
 import type { BgRemovalProgress } from "@/lib/bg-removal";
 import { openRazorpayCheckout } from "@/lib/razorpay-client";
 import { trackPhotoUploaded, trackDownload } from "@/lib/analytics";
+import { printPassportSheet } from "@/lib/print-layout";
 
 /** Shared key — paying once unlocks all tools forever across sessions. */
 const STORAGE_KEY = "icao_lifetime_paid";
@@ -351,7 +352,7 @@ export default function PhotoStudio() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
       <header className="mb-10 text-center">
-        <p className="text-sm font-semibold uppercase tracking-widest text-sky-700">
+        <p className="text-sm font-semibold uppercase tracking-widest text-amber-600">
           ICAO 9303 Compliant
         </p>
         <h1 className="mt-2 text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl">
@@ -495,14 +496,25 @@ export default function PhotoStudio() {
               {/* Download / pay row */}
               <div className="mt-2 flex flex-wrap gap-3">
                 {paid ? (
-                  <button
-                    type="button"
-                    onClick={() => void download()}
-                    disabled={!finalCanvas}
-                    className="flex-1 rounded-xl bg-emerald-600 px-5 py-3 font-semibold text-white shadow hover:bg-emerald-700 disabled:opacity-50"
-                  >
-                    ↓ Download ICAO JPEG
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void download()}
+                      disabled={!finalCanvas}
+                      className="flex-1 rounded-xl bg-emerald-600 px-5 py-3 font-semibold text-white shadow hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      ↓ Download JPEG
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { if (finalCanvas) printPassportSheet(finalCanvas); }}
+                      disabled={!finalCanvas}
+                      title="Opens a print-ready A4 sheet with 20 photos and crop marks"
+                      className="flex-1 rounded-xl border-2 border-indigo-800 bg-white px-5 py-3 font-semibold text-indigo-800 shadow hover:bg-indigo-50 disabled:opacity-50"
+                    >
+                      🖨 Print / PDF
+                    </button>
+                  </>
                 ) : (
                   <button
                     type="button"
@@ -518,6 +530,12 @@ export default function PhotoStudio() {
                   </button>
                 )}
               </div>
+              {/* Print layout hint for unpaid users */}
+              {!paid && finalCanvas && (
+                <p className="mt-2 text-center text-xs text-slate-400">
+                  Unlock to download JPEG or print an A4 sheet of 20 photos with crop marks
+                </p>
+              )}
             </div>
           )}
 
