@@ -35,6 +35,8 @@ import { trackPhotoUploaded, trackDownload } from "@/lib/analytics";
 /** Shared key — paying once unlocks all tools forever across sessions. */
 const STORAGE_KEY = "icao_lifetime_paid";
 const DEV_DOWNLOAD = process.env.NEXT_PUBLIC_ALLOW_DEV_DOWNLOAD === "true";
+/** Watermarks are a dev-only aid for testing; production always shows the clean image. */
+const IS_DEV = process.env.NODE_ENV === "development";
 
 // ─── small helpers ──────────────────────────────────────────────────────────
 
@@ -310,7 +312,7 @@ export default function PhotoStudio() {
   };
 
   // ── canvas preview ────────────────────────────────────────────────────────
-  const showWatermark = !paid && watermarkOn;
+  const showWatermark = IS_DEV && !paid && watermarkOn;
 
   useEffect(() => {
     const el = previewRef.current;
@@ -674,7 +676,7 @@ export default function PhotoStudio() {
                     checked={watermarkOn}
                     disabled={paid}
                     onChange={(e) => setWatermarkOn(e.target.checked)}
-                    className="h-4 w-4 accent-sky-600"
+                    className="h-4 w-4 accent-indigo-800"
                   />
                   Show on preview
                 </label>
