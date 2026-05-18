@@ -31,8 +31,17 @@ import {
 } from "@/lib/watermark";
 import type { BgRemovalProgress } from "@/lib/bg-removal";
 import { openRazorpayCheckout } from "@/lib/razorpay-client";
-import { trackPhotoUploaded, trackDownload } from "@/lib/analytics";
+import {
+  trackPhotoUploaded, trackDownload,
+  trackStandardSelected, trackBgColorChanged,
+  trackRedEyeFixed, trackExportModeChanged,
+} from "@/lib/analytics";
 import { printPassportSheet } from "@/lib/print-layout";
+import {
+  PHOTO_STANDARDS, DEFAULT_STANDARD, groupedStandards,
+  type PhotoStandard, type BgColor,
+} from "@/lib/photo-standards";
+import { removeRedEye, type OutputConfig } from "@/lib/icao-processor";
 
 /** Shared key — paying once unlocks all tools forever across sessions. */
 const STORAGE_KEY = "icao_lifetime_paid";
@@ -84,6 +93,14 @@ export default function PhotoStudio() {
   const [originalFileName, setOriginalFileName] = useState<string>("photo");
   /** "print" = full quality (~0.95) | "portal" = binary-search to ≤200 KB */
   const [exportMode, setExportMode] = useState<"print" | "portal">("print");
+  /** Active document standard */
+  const [standard, setStandard] = useState<PhotoStandard>(DEFAULT_STANDARD);
+  /** Active background colour (used after AI BG removal) */
+  const [bgColor, setBgColor] = useState<BgColor>(DEFAULT_STANDARD.bgColors[0]);
+  /** Transparent PNG URL stored after BG removal for re-compositing */
+  const transparentPngRef = useRef<string | null>(null);
+  /** Whether red-eye removal was applied this session */
+  const [redEyeFixed, setRedEyeFixed] = useState(false);
   const [bgRemoving, setBgRemoving] = useState(false);
   const [bgProgress, setBgProgress] = useState<BgRemovalProgress | null>(null);
   const [bgRemoved, setBgRemoved] = useState(false);
@@ -127,6 +144,12 @@ export default function PhotoStudio() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Refs to read latest standard/bgColor inside stable doProcess callback
+  const standardRef  = useRef<PhotoStandard>(DEFAULT_STANDARD);
+  const bgColorRef   = useRef<BgColor>(DEFAULT_STANDARD.bgColors[0]);
+  useEffect(() => { standardRef.current = standard; }, [standard]);
+  useEffect(() => { bgColorRef.current  = bgColor;  }, [bgColor]);
+
   // ── core process (stable, empty deps, reads from refs / passed args) ──────
   const doProcess = useCallback(
     async (url: string, currentSettings: ICAOSettings) => {
@@ -149,13 +172,20 @@ export default function PhotoStudio() {
           if (det) faceRef.current = det;
         }
 
-        const out = await processToICAO(url, faceRef.current, currentSettings);
+        const std = standardRef.current;
+        const outCfg: OutputConfig = {
+          width:   std.widthPx,
+          height:  std.heightPx,
+          bgColor: bgColorRef.current.hex,
+        };
+
+        const out = await processToICAO(url, faceRef.current, currentSettings, outCfg);
         if (gen !== processGenRef.current) return;
 
         setFinalCanvas(out);
+        setRedEyeFixed(false);
 
         // Build validation — need face height in output pixels
-        // fallback box used only for crop math when face detection not yet available
         const fallback = {
           x: img.naturalWidth * 0.2,
           y: img.naturalHeight * 0.05,
@@ -163,9 +193,8 @@ export default function PhotoStudio() {
           height: img.naturalHeight * 0.82,
         };
         const f = faceRef.current ?? fallback;
-        const crop = computeCrop(img.naturalWidth, img.naturalHeight, f, currentSettings);
-        // faceOutputHeight: face.height in source × scale = face height in ICAO output pixels
-        const faceOutputHeight = f.height * (ICAO_HEIGHT / crop.sh);
+        const crop = computeCrop(img.naturalWidth, img.naturalHeight, f, currentSettings, std.widthPx, std.heightPx);
+        const faceOutputHeight = f.height * (std.heightPx / crop.sh);
         setValidations(
           validateICAO(out, faceRef.current, faceOutputHeight, bgRemovedRef.current),
         );
@@ -240,22 +269,41 @@ export default function PhotoStudio() {
     setError(null);
     try {
       // Lazy-load the heavy library only when needed
-      const { removeImageBackground } = await import("@/lib/bg-removal");
+      const { removeImageBackgroundFull } = await import("@/lib/bg-removal");
 
       // Save original so user can revert
       if (!originalSourceUrlRef.current) {
         originalSourceUrlRef.current = sourceUrl;
       }
 
-      const whiteUrl = await removeImageBackground(sourceUrl, (p) => {
-        setBgProgress(p);
-      });
+      const { whiteJpegUrl, transparentPngUrl } = await removeImageBackgroundFull(
+        sourceUrl,
+        "balanced",
+        (p: BgRemovalProgress) => setBgProgress(p),
+      );
+
+      // Store transparent PNG so we can re-composite on colour change
+      transparentPngRef.current = transparentPngUrl;
+
+      // Composite with the currently selected bg colour
+      let compositeUrl = whiteJpegUrl;
+      if (bgColorRef.current.hex !== "#ffffff") {
+        const img = new Image();
+        await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = rej; img.src = transparentPngUrl; });
+        const c = document.createElement("canvas");
+        c.width = img.width; c.height = img.height;
+        const ctx = c.getContext("2d")!;
+        ctx.fillStyle = bgColorRef.current.hex;
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, 0, 0);
+        compositeUrl = c.toDataURL("image/jpeg", 0.95);
+      }
 
       // Reset face — background change may affect detection
       faceRef.current = null;
       setBgRemoved(true);
       setBgRemovedRef(true);
-      setSourceUrl(whiteUrl);
+      setSourceUrl(compositeUrl);
     } catch (e) {
       setError(
         e instanceof Error
@@ -277,14 +325,66 @@ export default function PhotoStudio() {
     faceRef.current = null;
     setBgRemoved(false);
     setBgRemovedRef(false);
+    transparentPngRef.current = null;
     setSourceUrl(orig);
     originalSourceUrlRef.current = null;
+  };
+
+  /** Switch to a different document standard and reprocess. */
+  const handleStandardChange = (s: PhotoStandard) => {
+    setStandard(s);
+    setBgColor(s.bgColors[0]);
+    trackStandardSelected(s.id, s.label);
+    if (sourceUrl) {
+      faceRef.current = null;
+      void doProcess(sourceUrl, settings);
+    }
+  };
+
+  /** Recomposite the transparent PNG with a new background color, then reprocess. */
+  const handleBgColorChange = async (color: BgColor) => {
+    setBgColor(color);
+    trackBgColorChanged(color.id);
+    const pngUrl = transparentPngRef.current;
+    if (!pngUrl) {
+      // No transparent PNG — just retrigger with color applied via OutputConfig
+      if (sourceUrl) void doProcess(sourceUrl, settings);
+      return;
+    }
+    // Composite transparent PNG onto the new background colour
+    const img = new Image();
+    await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = rej; img.src = pngUrl; });
+    const c = document.createElement("canvas");
+    c.width = img.width; c.height = img.height;
+    const ctx = c.getContext("2d")!;
+    ctx.fillStyle = color.hex;
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(img, 0, 0);
+    const compositeUrl = c.toDataURL("image/jpeg", 0.95);
+    faceRef.current = null;
+    setSourceUrl(compositeUrl);
+  };
+
+  /** Apply red-eye removal to the current finalCanvas. */
+  const handleFixRedEye = () => {
+    if (!finalCanvas) return;
+    const ctx = finalCanvas.getContext("2d");
+    if (!ctx) return;
+    const fixed = removeRedEye(ctx, finalCanvas.width, finalCanvas.height, standard.faceRatioDefault);
+    trackRedEyeFixed(fixed);
+    setRedEyeFixed(true);
+    // Redraw preview
+    const el = previewRef.current;
+    if (el) {
+      const pCtx = el.getContext("2d");
+      pCtx?.drawImage(finalCanvas, 0, 0, el.width, el.height);
+    }
   };
 
   // ── download / payment ────────────────────────────────────────────────────
   const download = async (mode: "print" | "portal" = exportMode) => {
     if (!finalCanvas) return;
-    trackDownload("icao_photo");
+    trackDownload("icao_photo", mode);
 
     let blob: Blob;
     let suffix = "";
@@ -379,10 +479,42 @@ export default function PhotoStudio() {
           Passport Photo Studio
         </h1>
         <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">
-          Auto face detection · AI background removal · compliance check ·
-          {" "}{ICAO_WIDTH}×{ICAO_HEIGHT} px JPEG.
+          Auto face detection · AI background removal · compliance check ·{" "}
+          {standard.widthPx}×{standard.heightPx} px · {standard.widthMm}×{standard.heightMm} mm
         </p>
       </header>
+
+      {/* ── Document Standard Selector ─────────────────────────────── */}
+      <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-slate-400">
+          Document type
+        </p>
+        <div className="space-y-3">
+          {Object.entries(groupedStandards()).map(([group, standards]) => (
+            <div key={group}>
+              <p className="mb-1.5 text-[11px] font-semibold text-slate-400">{group}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {standards.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => handleStandardChange(s)}
+                    title={s.notes}
+                    className={`flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition
+                      ${standard.id === s.id
+                        ? "border-indigo-600 bg-indigo-800 text-white"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-50"}`}
+                  >
+                    <span>{s.flag}</span>
+                    <span>{s.label}</span>
+                    <span className="opacity-60">{s.widthMm}×{s.heightMm}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div className="grid gap-8 lg:grid-cols-[1fr_340px]">
 
@@ -465,7 +597,7 @@ export default function PhotoStudio() {
                 {/* RIGHT — Processed ICAO */}
                 <div className="flex flex-col gap-1.5">
                   <p className="text-center text-xs font-semibold uppercase tracking-wide text-indigo-600">
-                    ICAO Ready · {ICAO_WIDTH}×{ICAO_HEIGHT}
+                    {standard.flag} {standard.label} · {standard.widthPx}×{standard.heightPx}
                   </p>
                   <div
                     className="relative overflow-hidden rounded-lg border border-indigo-100"
@@ -503,40 +635,76 @@ export default function PhotoStudio() {
                 </div>
               </div>
 
-              {/* BG removal row */}
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                {!bgRemoved ? (
+              {/* BG removal + color row */}
+              <div className="mt-3 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {!bgRemoved ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleRemoveBg()}
+                      disabled={bgRemoving || processing}
+                      className="flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+                    >
+                      <span>✨</span> Remove Background
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleRestoreBg}
+                      className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                    >
+                      ↩ Restore BG
+                    </button>
+                  )}
+                  {/* Red-eye fix */}
                   <button
                     type="button"
-                    onClick={() => void handleRemoveBg()}
-                    disabled={bgRemoving || processing}
-                    className="flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+                    onClick={handleFixRedEye}
+                    disabled={!finalCanvas || busy}
+                    title="Detect and neutralise red-eye in the eye regions"
+                    className={`flex items-center gap-1.5 rounded-xl border px-4 py-2 text-sm font-medium transition disabled:opacity-50
+                      ${redEyeFixed ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}
                   >
-                    <span>✨</span> Remove Background
+                    👁 {redEyeFixed ? "Red-eye fixed ✓" : "Fix red-eye"}
                   </button>
-                ) : (
                   <button
                     type="button"
-                    onClick={handleRestoreBg}
-                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                    onClick={() => { faceRef.current = null; if (sourceUrl) void doProcess(sourceUrl, settings); }}
+                    disabled={busy}
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                   >
-                    ↩ Restore original
+                    Re-detect face
                   </button>
+                  <a
+                    href="/bg-remover"
+                    className="ml-auto rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                  >
+                    Dedicated BG Remover →
+                  </a>
+                </div>
+
+                {/* Background colour picker — shown after BG removal */}
+                {bgRemoved && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                    <span className="text-xs text-slate-500">Background:</span>
+                    {standard.bgColors.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => void handleBgColorChange(c)}
+                        title={c.label}
+                        className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition
+                          ${bgColor.id === c.id ? "border-indigo-500 ring-1 ring-indigo-400" : "border-slate-300 hover:border-indigo-300"}`}
+                      >
+                        <span
+                          className="h-3.5 w-3.5 rounded-full border border-slate-300 shadow-sm"
+                          style={{ background: c.hex }}
+                        />
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
                 )}
-                <button
-                  type="button"
-                  onClick={() => { faceRef.current = null; if (sourceUrl) void doProcess(sourceUrl, settings); }}
-                  disabled={busy}
-                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  Re-detect face
-                </button>
-                <a
-                  href="/bg-remover"
-                  className="ml-auto rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
-                >
-                  Dedicated BG Remover →
-                </a>
               </div>
 
               {/* Export size toggle + download / pay row */}
@@ -548,14 +716,14 @@ export default function PhotoStudio() {
                     <div className="flex overflow-hidden rounded-lg border border-slate-200 text-xs font-semibold">
                       <button
                         type="button"
-                        onClick={() => setExportMode("print")}
+                        onClick={() => { setExportMode("print"); trackExportModeChanged("print"); }}
                         className={`px-3 py-1.5 transition ${exportMode === "print" ? "bg-indigo-800 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
                       >
                         Print quality
                       </button>
                       <button
                         type="button"
-                        onClick={() => setExportMode("portal")}
+                        onClick={() => { setExportMode("portal"); trackExportModeChanged("portal"); }}
                         className={`px-3 py-1.5 transition border-l border-slate-200 ${exportMode === "portal" ? "bg-indigo-800 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
                       >
                         Portal &lt;200 KB
@@ -565,6 +733,11 @@ export default function PhotoStudio() {
                       {exportMode === "portal" ? "Auto-optimised for govt portals" : "Best for printing"}
                     </span>
                   </div>
+
+                  {/* EXIF strip notice */}
+                  <p className="flex items-center gap-1 text-[11px] text-slate-400">
+                    <span>🔒</span> EXIF metadata stripped · GPS &amp; device info removed on export
+                  </p>
 
                   {/* Action buttons */}
                   <div className="flex flex-wrap gap-3">

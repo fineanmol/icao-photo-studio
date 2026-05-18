@@ -129,25 +129,28 @@ function unsharpMask(
 
 /**
  * Computes source crop region so that:
- *  - face fills faceRatio of ICAO_HEIGHT vertically
+ *  - face fills faceRatio of outH vertically
  *  - face is horizontally centered
- *  - hair top sits at ~8% from the top of the output (ICAO standard framing)
+ *  - hair top sits at ~8% from the top of the output frame
  *  - chin sits at ~90% from the top, leaving ~10% below
  *
  * offsetX / offsetY let the user nudge in source pixels.
+ * outW / outH default to ICAO_WIDTH / ICAO_HEIGHT.
  */
 export function computeCrop(
   imgW: number,
   imgH: number,
   face: FaceBox,
   settings: ICAOSettings,
+  outW = ICAO_WIDTH,
+  outH = ICAO_HEIGHT,
 ): { sx: number; sy: number; sw: number; sh: number } {
   // Scale so face height maps to faceRatio of output height
-  const targetFaceH = ICAO_HEIGHT * settings.faceRatio;
+  const targetFaceH = outH * settings.faceRatio;
   const scale = targetFaceH / face.height;
 
-  const sw = ICAO_WIDTH / scale;
-  const sh = ICAO_HEIGHT / scale;
+  const sw = outW / scale;
+  const sh = outH / scale;
 
   // Horizontal: center on face
   const faceCenterX = face.x + face.width / 2;
@@ -277,10 +280,67 @@ function fixLightingAsymmetry(
   ctx.putImageData(imageData, 0, 0);
 }
 
+/** Optional per-standard output overrides passed to processToICAO. */
+export interface OutputConfig {
+  width?: number;
+  height?: number;
+  /** CSS colour string for the background fill (default: #ffffff). */
+  bgColor?: string;
+}
+
+/**
+ * Removes red-eye from the eye zone of an already-rendered output canvas.
+ * Uses approximate anatomical positions since we don't have landmark coords
+ * in output-canvas space. Returns the number of pixels corrected.
+ */
+export function removeRedEye(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  faceRatio = 0.825,
+): number {
+  const faceH  = h * faceRatio;
+  const faceTop = (h - faceH) / 2;
+
+  // Eye zone: ~28–46% from top of face (between brows and lower eyelid)
+  const eyeY0 = Math.floor(faceTop + faceH * 0.28);
+  const eyeY1 = Math.floor(faceTop + faceH * 0.46);
+
+  // Avoid the nose bridge (centre 10%)
+  const leftX0 = Math.floor(w * 0.12), leftX1  = Math.floor(w * 0.44);
+  const rightX0 = Math.floor(w * 0.56), rightX1 = Math.floor(w * 0.88);
+
+  const id = ctx.getImageData(0, 0, w, h);
+  const d  = id.data;
+  let fixed = 0;
+
+  for (let y = eyeY0; y < eyeY1; y++) {
+    for (let x = 0; x < w; x++) {
+      const inEye = (x >= leftX0 && x <= leftX1) || (x >= rightX0 && x <= rightX1);
+      if (!inEye) continue;
+
+      const i = (y * w + x) * 4;
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+
+      // Classic red-eye heuristic: very red, low green & blue
+      if (r > 100 && r > g * 2.2 && r > b * 2.2) {
+        const avg = Math.round((g + b) / 2);
+        d[i]     = avg;   // reduce red channel
+        d[i + 1] = Math.round(avg * 1.05); // slight green boost for natural look
+        fixed++;
+      }
+    }
+  }
+
+  if (fixed > 0) ctx.putImageData(id, 0, 0);
+  return fixed;
+}
+
 export async function processToICAO(
   imageSrc: string,
   face: FaceInput | null,
   settings: ICAOSettings,
+  outputCfg: OutputConfig = {},
 ): Promise<HTMLCanvasElement> {
   const img = await loadImage(imageSrc);
 
@@ -310,30 +370,36 @@ export async function processToICAO(
     effectiveFace = rotFace;
   }
 
+  const outW = outputCfg.width  ?? ICAO_WIDTH;
+  const outH = outputCfg.height ?? ICAO_HEIGHT;
+  const bgColor = outputCfg.bgColor ?? "#ffffff";
+
   const crop = computeCrop(
     srcCanvas.width,
     srcCanvas.height,
     effectiveFace,
     settings,
+    outW,
+    outH,
   );
 
   const out = document.createElement("canvas");
-  out.width = ICAO_WIDTH;
-  out.height = ICAO_HEIGHT;
+  out.width  = outW;
+  out.height = outH;
   const ctx = getCanvas2D(out, { willReadFrequently: true });
 
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, ICAO_WIDTH, ICAO_HEIGHT);
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, outW, outH);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
 
-  ctx.drawImage(srcCanvas, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, ICAO_WIDTH, ICAO_HEIGHT);
+  ctx.drawImage(srcCanvas, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, outW, outH);
 
-  applyAdjustments(ctx, ICAO_WIDTH, ICAO_HEIGHT, settings);
-  unsharpMask(ctx, ICAO_WIDTH, ICAO_HEIGHT, settings.sharpen);
+  applyAdjustments(ctx, outW, outH, settings);
+  unsharpMask(ctx, outW, outH, settings.sharpen);
 
   // ── Auto-correct lighting asymmetry ───────────────────────────────
-  fixLightingAsymmetry(ctx, ICAO_WIDTH, ICAO_HEIGHT);
+  fixLightingAsymmetry(ctx, outW, outH);
 
   return out;
 }

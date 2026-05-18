@@ -49,6 +49,26 @@ export function trackPurchase(product: string, value: number) {
 }
 
 /** User downloaded their file. */
-export function trackDownload(product: string) {
-  gtag("event", "file_download", { product });
+export function trackDownload(product: string, exportMode?: string) {
+  gtag("event", "file_download", { product, export_mode: exportMode ?? "print" });
+}
+
+/** User changed document standard (e.g. "us-passport", "schengen"). */
+export function trackStandardSelected(standardId: string, standardLabel: string) {
+  gtag("event", "standard_selected", { standard_id: standardId, standard_label: standardLabel });
+}
+
+/** User changed the background colour after AI removal. */
+export function trackBgColorChanged(colorId: string) {
+  gtag("event", "bg_color_changed", { color_id: colorId });
+}
+
+/** Red-eye removal was applied. */
+export function trackRedEyeFixed(pixelsFixed: number) {
+  gtag("event", "red_eye_fixed", { pixels_fixed: pixelsFixed });
+}
+
+/** User toggled the export size mode. */
+export function trackExportModeChanged(mode: "print" | "portal") {
+  gtag("event", "export_mode_changed", { mode });
 }
